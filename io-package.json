@@ -1,0 +1,133 @@
+{
+    "common": {
+        "name": "energyflow",
+        "version": "0.0.1",
+        "news": {
+            "0.0.1": {
+                "en": "Initial release",
+                "de": "Erstveröffentlichung",
+                "ru": "Первый выпуск",
+                "pt": "Lançamento inicial",
+                "nl": "Eerste release",
+                "fr": "Première version",
+                "it": "Rilascio iniziale",
+                "es": "Lanzamiento inicial",
+                "pl": "Pierwsze wydanie",
+                "uk": "Перший випуск",
+                "zh-cn": "首次发布"
+            }
+        },
+        "titleLang": {
+            "en": "Energy flow",
+            "de": "Energiefluss",
+            "ru": "Поток энергии",
+            "pt": "Fluxo de energia",
+            "nl": "Energiestroom",
+            "fr": "Flux d'énergie",
+            "it": "Flusso di energia",
+            "es": "Flujo de energía",
+            "pl": "Przepływ energii",
+            "uk": "Потік енергії",
+            "zh-cn": "能量流"
+        },
+        "desc": {
+            "en": "Freely configurable, animated energy flow diagram for vis-2 and the device manager",
+            "de": "Frei konfigurierbares, animiertes Energiefluss-Diagramm für vis-2 und den Geräte-Manager",
+            "ru": "Свободно настраиваемая анимированная диаграмма потока энергии для vis-2 и менеджера устройств",
+            "pt": "Diagrama de fluxo de energia animado e configurável para vis-2 e o gestor de dispositivos",
+            "nl": "Vrij configureerbaar, geanimeerd energiestroomdiagram voor vis-2 en de apparaatbeheerder",
+            "fr": "Diagramme de flux d'énergie animé et librement configurable pour vis-2 et le gestionnaire d'appareils",
+            "it": "Diagramma di flusso energetico animato e liberamente configurabile per vis-2 e il gestore dispositivi",
+            "es": "Diagrama de flujo de energía animado y configurable para vis-2 y el gestor de dispositivos",
+            "pl": "Dowolnie konfigurowalny, animowany diagram przepływu energii dla vis-2 i menedżera urządzeń",
+            "uk": "Вільно налаштовувана анімована діаграма потоку енергії для vis-2 та менеджера пристроїв",
+            "zh-cn": "适用于 vis-2 和设备管理器的可自由配置动画能量流图"
+        },
+        "licenseInformation": {
+            "license": "MIT",
+            "type": "free"
+        },
+        "authors": [
+            "bluefox <dogafox@gmail.com>"
+        ],
+        "keywords": [
+            "energyflow",
+            "energy",
+            "photovoltaics"
+        ],
+        "platform": "Javascript/Node.js",
+        "icon": "energyflow.svg",
+        "extIcon": "https://raw.githubusercontent.com/ioBroker/ioBroker.energyflow/main/admin/energyflow.svg",
+        "enabled": true,
+        "readme": "https://github.com/ioBroker/ioBroker.energyflow/blob/main/README.md",
+        "loglevel": "info",
+        "mode": "none",
+        "adminUI": {
+            "config": "none"
+        },
+        "onlyWWW": true,
+        "type": "visualization-widgets",
+        "connectionType": "local",
+        "dataSource": "push",
+        "nogit": true,
+        "singleton": true,
+        "visWidgets": {
+            "energyflowWidgets": {
+                "i18n": "component",
+                "name": "energyflowWidgets",
+                "url": "energyflow/customWidgets.js",
+                "bundlerType": "module",
+                "components": [
+                    "EnergyFlow"
+                ]
+            }
+        },
+        "deviceWidgets": {
+            "url": "customDevices.js",
+            "components": [
+                {
+                    "name": "EnergyFlow",
+                    "label": {
+                        "en": "Energy flow",
+                        "de": "Energiefluss",
+                        "ru": "Поток энергии",
+                        "pt": "Fluxo de energia",
+                        "nl": "Energiestroom",
+                        "fr": "Flux d'énergie",
+                        "it": "Flusso di energia",
+                        "es": "Flujo de energía",
+                        "pl": "Przepływ energii",
+                        "uk": "Потік енергії",
+                        "zh-cn": "能量流"
+                    },
+                    "description": {
+                        "en": "Animated energy flow diagram with its own designer",
+                        "de": "Animiertes Energiefluss-Diagramm mit eigenem Designer",
+                        "ru": "Анимированная диаграмма потока энергии с собственным редактором",
+                        "pt": "Diagrama de fluxo de energia animado com o seu próprio editor",
+                        "nl": "Geanimeerd energiestroomdiagram met eigen ontwerper",
+                        "fr": "Diagramme de flux d'énergie animé avec son propre éditeur",
+                        "it": "Diagramma di flusso energetico animato con il proprio editor",
+                        "es": "Diagrama de flujo de energía animado con su propio editor",
+                        "pl": "Animowany diagram przepływu energii z własnym edytorem",
+                        "uk": "Анімована діаграма потоку енергії з власним редактором",
+                        "zh-cn": "带有自己设计器的动画能量流图"
+                    },
+                    "icon": "energyflow.png"
+                }
+            ]
+        },
+        "dependencies": [
+            {
+                "js-controller": ">=5.0.19"
+            }
+        ],
+        "restartAdapters": [
+            "vis-2"
+        ],
+        "tier": 3
+    },
+    "native": {},
+    "objects": [],
+    "instanceObjects": []
+}

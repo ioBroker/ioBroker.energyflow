@@ -1,0 +1,9 @@
+{
+    "name": "@energyflow/editor",
+    "private": true,
+    "version": "0.0.1",
+    "description": "The diagram designer, shared by the vis-2 widget and the device manager plugin",
+    "type": "module",
+    "main": "src/index.ts",
+    "license": "MIT"
+}

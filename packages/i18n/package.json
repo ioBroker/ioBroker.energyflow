@@ -1,0 +1,9 @@
+{
+    "name": "@energyflow/i18n",
+    "private": true,
+    "version": "0.0.1",
+    "description": "The shared dictionary of the vis-2 widget set and the device manager plugin",
+    "type": "module",
+    "main": "src/index.ts",
+    "license": "MIT"
+}

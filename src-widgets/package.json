@@ -1,0 +1,39 @@
+{
+    "name": "iobroker.energyflow-widgets",
+    "private": true,
+    "version": "0.0.1",
+    "type": "module",
+    "dependencies": {},
+    "devDependencies": {
+        "@emotion/react": "^11.14.0",
+        "@emotion/styled": "^11.14.1",
+        "@iobroker/gui-components": "^10.2.3",
+        "@iobroker/types-vis-2": "~2.20.1",
+        "@iobroker/vis-2-widgets-react-dev": "^4.0.4",
+        "@module-federation/vite": "^1.21.3",
+        "@mui/icons-material": "^9.4.0",
+        "@mui/material": "^9.4.0",
+        "@mui/system": "^9.4.0",
+        "@types/node": "^26.4.1",
+        "@types/react": "^19.2.18",
+        "@types/react-dom": "^19.2.7",
+        "@vitejs/plugin-react": "^6.1.1",
+        "react": "^19.2.8",
+        "react-dom": "^19.2.8",
+        "rollup": "^4.63.1",
+        "typescript": "~6.0.3",
+        "vite": "^8.2.2"
+    },
+    "scripts": {
+        "start": "vite --port 4173",
+        "build": "tsc && vite build",
+        "preview": "vite preview"
+    },
+    "homepage": ".",
+    "browserslist": [
+        ">0.2%",
+        "not dead",
+        "not ie <= 11",
+        "not op_mini all"
+    ]
+}

@@ -1,0 +1,211 @@
+/**
+ * Ready-made diagrams.
+ *
+ * This is the single biggest usability difference to the predecessor, where a new installation opens
+ * an empty canvas and the user has to place every circle and draw every line before anything works.
+ * Here they pick the shape of their house, and the only thing left is to say which state is the PV
+ * power -- the layout, the colours, the directions and the routing are already right.
+ *
+ * The layouts are deliberately built around the *minimum number of states* a setup really needs. The
+ * classic four-node diagram gets by with three: PV power, grid power and battery power, the latter
+ * two signed. A diagram that asks for "grid import" and "grid feed-in" separately is asking the user
+ * to solve a problem the `signed` edge mode already solves.
+ */
+import type { EnergyFlowConfig, FlowEdge, FlowNode } from './types';
+
+export type PresetId =
+    'pv-home' | 'pv-battery-home' | 'pv-battery-wallbox' | 'pv-battery-heating' | 'grid-home' | 'empty';
+
+export interface PresetInfo {
+    id: PresetId;
+    /** i18n key of the name */
+    label: string;
+    /** i18n key of the one-line description */
+    description: string;
+}
+
+export const PRESETS: PresetInfo[] = [
+    { id: 'pv-battery-home', label: 'preset_pv_battery_home', description: 'preset_pv_battery_home_desc' },
+    { id: 'pv-home', label: 'preset_pv_home', description: 'preset_pv_home_desc' },
+    { id: 'pv-battery-wallbox', label: 'preset_pv_battery_wallbox', description: 'preset_pv_battery_wallbox_desc' },
+    { id: 'pv-battery-heating', label: 'preset_pv_battery_heating', description: 'preset_pv_battery_heating_desc' },
+    { id: 'grid-home', label: 'preset_grid_home', description: 'preset_grid_home_desc' },
+    { id: 'empty', label: 'preset_empty', description: 'preset_empty_desc' },
+];
+
+/** Translates an i18n key; the editor passes the host's `I18n.t` */
+export type Translator = (key: string) => string;
+
+/** Watts, because that is what virtually every inverter and meter adapter in ioBroker reports */
+const BASE_DEFAULTS: EnergyFlowConfig['defaults'] = {
+    unit: 'W',
+    lineWidth: 3,
+    fontSize: 17,
+};
+
+function node(partial: FlowNode): FlowNode {
+    return partial;
+}
+
+function edge(partial: FlowEdge): FlowEdge {
+    return partial;
+}
+
+/**
+ * Build one of the ready-made diagrams.
+ *
+ * Every value source is left empty on purpose: the editor opens on the first node right after, and a
+ * preset that came with somebody else's state ids would be worse than one that comes with none.
+ *
+ * @param id which preset
+ * @param t translates the node labels
+ * @returns a complete, valid document
+ */
+export function buildPreset(id: PresetId, t: Translator): EnergyFlowConfig {
+    switch (id) {
+        case 'pv-home':
+            return {
+                v: 1,
+                canvas: { w: 820, h: 470, grid: 10 },
+                defaults: { ...BASE_DEFAULTS },
+                nodes: [
+                    node({ id: 'pv', kind: 'source', x: 210, y: 120, icon: 'solar', label: t('node_pv') }),
+                    node({ id: 'grid', kind: 'grid', x: 210, y: 350, icon: 'grid', label: t('node_grid') }),
+                    node({ id: 'home', kind: 'sink', x: 610, y: 235, icon: 'house', label: t('node_home') }),
+                ],
+                edges: [
+                    edge({ id: 'pv-home', from: 'pv', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'grid-home', from: 'grid', to: 'home', value: { oid: '' }, mode: 'signed' }),
+                ],
+            };
+
+        case 'pv-battery-home':
+            return {
+                v: 1,
+                canvas: { w: 900, h: 560, grid: 10 },
+                defaults: { ...BASE_DEFAULTS },
+                nodes: [
+                    node({ id: 'pv', kind: 'source', x: 450, y: 100, icon: 'solar', label: t('node_pv') }),
+                    node({ id: 'grid', kind: 'grid', x: 140, y: 400, icon: 'grid', label: t('node_grid') }),
+                    node({
+                        id: 'battery',
+                        kind: 'storage',
+                        x: 760,
+                        y: 400,
+                        icon: 'battery',
+                        label: t('node_battery'),
+                        soc: { oid: '' },
+                    }),
+                    node({ id: 'home', kind: 'sink', x: 450, y: 330, icon: 'house', label: t('node_home') }),
+                ],
+                edges: [
+                    edge({ id: 'pv-home', from: 'pv', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'grid-home', from: 'grid', to: 'home', value: { oid: '' }, mode: 'signed' }),
+                    // Positive discharges into the house, negative charges the battery -- one state
+                    edge({ id: 'battery-home', from: 'battery', to: 'home', value: { oid: '' }, mode: 'signed' }),
+                ],
+            };
+
+        case 'pv-battery-wallbox':
+            return {
+                v: 1,
+                canvas: { w: 940, h: 620, grid: 10 },
+                defaults: { ...BASE_DEFAULTS },
+                nodes: [
+                    node({ id: 'pv', kind: 'source', x: 470, y: 100, icon: 'solar', label: t('node_pv') }),
+                    node({ id: 'grid', kind: 'grid', x: 130, y: 300, icon: 'grid', label: t('node_grid') }),
+                    node({
+                        id: 'battery',
+                        kind: 'storage',
+                        x: 810,
+                        y: 300,
+                        icon: 'battery',
+                        label: t('node_battery'),
+                        soc: { oid: '' },
+                    }),
+                    // A junction, so five elements share one crossing point instead of every line
+                    // running to every other node
+                    node({ id: 'bus', kind: 'bus', x: 470, y: 300 }),
+                    node({ id: 'home', kind: 'sink', x: 320, y: 510, icon: 'house', label: t('node_home') }),
+                    node({
+                        id: 'wallbox',
+                        kind: 'sink',
+                        x: 630,
+                        y: 510,
+                        icon: 'wallbox',
+                        label: t('node_wallbox'),
+                        hideWhenZero: false,
+                    }),
+                ],
+                edges: [
+                    edge({ id: 'pv-bus', from: 'pv', to: 'bus', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'grid-bus', from: 'grid', to: 'bus', value: { oid: '' }, mode: 'signed' }),
+                    edge({ id: 'battery-bus', from: 'battery', to: 'bus', value: { oid: '' }, mode: 'signed' }),
+                    edge({ id: 'bus-home', from: 'bus', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'bus-wallbox', from: 'bus', to: 'wallbox', value: { oid: '' }, mode: 'positive' }),
+                ],
+            };
+
+        case 'pv-battery-heating':
+            return {
+                v: 1,
+                canvas: { w: 940, h: 620, grid: 10 },
+                defaults: { ...BASE_DEFAULTS },
+                nodes: [
+                    node({ id: 'pv', kind: 'source', x: 470, y: 100, icon: 'solar', label: t('node_pv') }),
+                    node({ id: 'grid', kind: 'grid', x: 130, y: 300, icon: 'grid', label: t('node_grid') }),
+                    node({
+                        id: 'battery',
+                        kind: 'storage',
+                        x: 810,
+                        y: 300,
+                        icon: 'battery',
+                        label: t('node_battery'),
+                        soc: { oid: '' },
+                    }),
+                    node({ id: 'bus', kind: 'bus', x: 470, y: 300 }),
+                    node({ id: 'home', kind: 'sink', x: 320, y: 510, icon: 'house', label: t('node_home') }),
+                    node({
+                        id: 'heatpump',
+                        kind: 'sink',
+                        x: 630,
+                        y: 510,
+                        icon: 'heatpump',
+                        label: t('node_heatpump'),
+                    }),
+                ],
+                edges: [
+                    edge({ id: 'pv-bus', from: 'pv', to: 'bus', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'grid-bus', from: 'grid', to: 'bus', value: { oid: '' }, mode: 'signed' }),
+                    edge({ id: 'battery-bus', from: 'battery', to: 'bus', value: { oid: '' }, mode: 'signed' }),
+                    edge({ id: 'bus-home', from: 'bus', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'bus-heatpump', from: 'bus', to: 'heatpump', value: { oid: '' }, mode: 'positive' }),
+                ],
+            };
+
+        case 'grid-home':
+            return {
+                v: 1,
+                canvas: { w: 700, h: 320, grid: 10 },
+                defaults: { ...BASE_DEFAULTS },
+                nodes: [
+                    node({ id: 'grid', kind: 'grid', x: 160, y: 160, icon: 'grid', label: t('node_grid') }),
+                    node({ id: 'home', kind: 'sink', x: 540, y: 160, icon: 'house', label: t('node_home') }),
+                ],
+                edges: [
+                    edge({
+                        id: 'grid-home',
+                        from: 'grid',
+                        to: 'home',
+                        value: { oid: '' },
+                        mode: 'signed',
+                        showValue: true,
+                    }),
+                ],
+            };
+
+        case 'empty':
+        default:
+            return { v: 1, canvas: { w: 900, h: 560, grid: 10 }, defaults: { ...BASE_DEFAULTS }, nodes: [], edges: [] };
+    }
+}

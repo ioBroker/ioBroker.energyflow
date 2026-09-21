@@ -1,0 +1,10 @@
+{
+    "require": [
+        "tsx"
+    ],
+    "spec": [
+        "test/**/*.test.ts",
+        "test/**/*.test.js"
+    ],
+    "timeout": 10000
+}

@@ -1,0 +1,9 @@
+{
+    "name": "@energyflow/core",
+    "private": true,
+    "version": "0.0.1",
+    "description": "Host-agnostic model, value resolution and SVG renderer of the energy flow diagram",
+    "type": "module",
+    "main": "src/index.ts",
+    "license": "MIT"
+}
