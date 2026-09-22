@@ -18,6 +18,14 @@ export interface EditorContext {
     t: (key: string, ...args: (string | number)[]) => string;
 }
 
-/** What the designer currently has selected */
+/**
+ * What the designer currently has selected. One node is `node`, two or more are `nodes` -- the
+ * inspector edits a single node and only offers what applies to all of them for several, so the two
+ * are kept apart instead of `node` being a list of one. Build them with `selectNodes`.
+ */
 export type EditorSelection =
-    { kind: 'none' } | { kind: 'canvas' } | { kind: 'node'; id: string } | { kind: 'edge'; id: string };
+    | { kind: 'none' }
+    | { kind: 'canvas' }
+    | { kind: 'node'; id: string }
+    | { kind: 'nodes'; ids: string[] }
+    | { kind: 'edge'; id: string };

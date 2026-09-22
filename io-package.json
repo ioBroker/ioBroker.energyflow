@@ -63,7 +63,8 @@
         "loglevel": "info",
         "mode": "none",
         "adminUI": {
-            "config": "none"
+            "config": "none",
+            "tab": "html"
         },
         "onlyWWW": true,
         "type": "visualization-widgets",
@@ -125,9 +126,38 @@
         "restartAdapters": [
             "vis-2"
         ],
-        "tier": 3
+        "tier": 3,
+        "adminTab": {
+            "singleton": true,
+            "name": {
+                "en": "Energy flow",
+                "de": "Energiefluss",
+                "ru": "Поток энергии",
+                "pt": "Fluxo de energia",
+                "nl": "Energiestroom",
+                "fr": "Flux d'énergie",
+                "it": "Flusso di energia",
+                "es": "Flujo de energía",
+                "pl": "Przepływ energii",
+                "uk": "Потік енергії",
+                "zh-cn": "能量流"
+            },
+            "icon": "energyflow.svg"
+        }
     },
     "native": {},
     "objects": [],
-    "instanceObjects": []
+    "instanceObjects": [
+        {
+            "_id": "diagrams",
+            "type": "channel",
+            "common": {
+                "name": {
+                    "en": "Stored energy flow diagrams",
+                    "de": "Gespeicherte Energiefluss-Diagramme"
+                }
+            },
+            "native": {}
+        }
+    ]
 }

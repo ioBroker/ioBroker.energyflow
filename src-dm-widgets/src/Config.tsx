@@ -17,13 +17,10 @@
  *   host's save button light up
  */
 import React from 'react';
-import { Box, Button, Stack, Typography } from '@mui/material';
-import { Dashboard } from '@mui/icons-material';
 import { I18n, type Connection, type IobTheme, type ThemeType } from '@iobroker/gui-components';
 import type { ConfigGenericProps } from '@iobroker/json-config';
 
-import { computeRuntime, normalizeConfig, themeFromMui, type EnergyFlowConfig } from '@energyflow/core';
-import { EnergyFlowEditor, type EditorContext } from '@energyflow/editor';
+import { DiagramAttribute, type EditorContext } from '@energyflow/editor';
 import translations, { I18N_PREFIX } from '@energyflow/i18n';
 
 /** What `ConfigCustom` adds on top of the generic item props */
@@ -70,20 +67,11 @@ function t(key: string, ...args: (string | number)[]): string {
 
 export function Designer(props: DesignerProps): React.JSX.Element {
     const { data, attr, onChange, socket, theme, themeType } = props;
-    const [open, setOpen] = React.useState(false);
 
     // `attr` is the key of this item in the schema; falling back to 'diagram' keeps the component
     // usable if it is ever embedded under a different name
     const key = attr || 'diagram';
     const stored = (data as Record<string, unknown> | undefined)?.[key];
-
-    const config = React.useMemo(() => normalizeConfig(stored), [stored]);
-
-    /** A count, so the dialog says whether there is a diagram at all while the designer is closed */
-    const summary = React.useMemo(() => {
-        const runtime = computeRuntime(config, () => null, themeFromMui(theme));
-        return { nodes: runtime.nodes.length, edges: runtime.edges.length };
-    }, [config, theme]);
 
     const editorContext: EditorContext = React.useMemo(
         () => ({
@@ -96,43 +84,12 @@ export function Designer(props: DesignerProps): React.JSX.Element {
         [socket, theme, themeType],
     );
 
-    const save = (next: EnergyFlowConfig): void => {
-        void onChange(key, next);
-    };
-
     return (
-        <Box sx={{ width: '100%' }}>
-            <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Dashboard />}
-                onClick={() => setOpen(true)}
-            >
-                {t('field_open_designer')}
-            </Button>
-            <Stack
-                sx={{ mt: 1 }}
-                spacing={0.25}
-            >
-                <Typography
-                    variant="caption"
-                    color="text.secondary"
-                >
-                    {t('insp_counts', summary.nodes, summary.edges)}
-                </Typography>
-            </Stack>
-
-            {open ? (
-                <EnergyFlowEditor
-                    open={open}
-                    value={stored}
-                    onClose={() => setOpen(false)}
-                    onSave={save}
-                    context={editorContext}
-                    title={t('editor_title')}
-                />
-            ) : null}
-        </Box>
+        <DiagramAttribute
+            value={stored}
+            onChange={next => void onChange(key, next)}
+            context={editorContext}
+        />
     );
 }
 

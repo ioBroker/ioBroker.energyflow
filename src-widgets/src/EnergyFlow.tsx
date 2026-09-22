@@ -15,17 +15,36 @@ import React from 'react';
 import type { RxRenderWidgetProps, RxWidgetInfo, VisRxWidgetProps, VisRxWidgetState } from '@iobroker/types-vis-2';
 
 import {
+    cachedEnergyToday,
+    cachedHistory,
+    cachedMax,
+    cachedUnit,
     collectOids,
+    detailTarget,
+    energyRequests,
+    historyRequests,
+    loadEnergyToday,
+    loadHistory,
+    needsClock,
+    readDetail,
     computeRuntime,
+    loadUnits,
     EnergyFlowView,
-    normalizeConfig,
+    emptyConfig,
+    parseStoredDiagram,
+    readDiagramAttribute,
     themeFromMui,
     toNumber,
     type EnergyFlowConfig,
+    type HistoryReader,
+    type StateTimes,
     type FlowNode,
 } from '@energyflow/core';
 
 import Generic from './Generic';
+// By path, not through the package index: that one would pull the designer and gui-components into the
+// widget's first chunk. The dialog itself needs nothing but MUI, which vis-2 shares
+import { HistoryDialog } from '../../packages/editor/src/HistoryDialog';
 
 /**
  * The designer, including the parts of `@iobroker/gui-components` it needs, is one lazy chunk. It is
@@ -46,21 +65,44 @@ interface EnergyFlowState extends VisRxWidgetState {
     efValues: Record<string, number | null>;
     /** Whether the dots should move right now */
     efAnimate: boolean;
+    /**
+     * The diagram a reference points at, as last delivered by its state. Kept with the id it belongs
+     * to, so a widget that was just switched to another diagram does not show the old one meanwhile.
+     */
+    efStored: { id: string; config: EnergyFlowConfig | null } | null;
+    /** Bumped when units of the states have arrived, see `units.ts` in the core */
+    efUnits: number;
+    /** When each state was written and changed, for nodes that show it */
+    efTimes: Record<string, StateTimes & { raw?: unknown }>;
+    /** The node whose detail view is open */
+    efDetail: string | null;
+    /** The present, advanced while a node shows "12 minutes ago" */
+    efNow: number;
+    /** Bumped when recorded values for the charts have arrived */
+    efHistory: number;
 }
 
 /** State changes are collected for this long before the widget re-renders */
 const FLUSH_MS = 120;
 
+/** How often "12 minutes ago" is recomputed */
+const CLOCK_MS = 30000;
+
 export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowState> {
     /** The ids currently subscribed, so a configuration change only diffs */
     private efSubscribed: string[] = [];
     private efPending: Record<string, number | null> = {};
+    private efPendingTimes: Record<string, StateTimes & { raw?: unknown }> = {};
+    private efClock: ReturnType<typeof setInterval> | null = null;
+    /** The default history adapter: undefined until asked, null when there is none */
+    private efHistoryInstance: string | null | undefined = undefined;
     private efFlushTimer: ReturnType<typeof setTimeout> | null = null;
     private efRoot = React.createRef<HTMLDivElement>();
     private efObserver: IntersectionObserver | null = null;
     private efVisible = true;
     private efOnScreen = true;
     private efReducedMotion = false;
+    private efUnmounted = false;
 
     constructor(props: VisRxWidgetProps) {
         super(props);
@@ -68,6 +110,12 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
             ...this.state,
             efValues: {},
             efAnimate: true,
+            efStored: null,
+            efUnits: 0,
+            efTimes: {},
+            efDetail: null,
+            efNow: Date.now(),
+            efHistory: 0,
         };
     }
 
@@ -123,6 +171,17 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
         super.componentDidMount();
         this.efSyncSubscriptions();
 
+        // "12 minutes ago" has to become "13 minutes ago" without the state changing. Cheap enough to
+        // run always; it only re-renders while a node shows a time
+        this.efClock = setInterval(() => {
+            if (needsClock(this.efConfig)) {
+                this.setState({ efNow: Date.now() });
+            }
+            // The charts decide themselves whether they are stale
+            this.efLoadHistory();
+        }, CLOCK_MS);
+        this.efLoadHistory();
+
         document.addEventListener('visibilitychange', this.efOnVisibilityChange);
 
         // A diagram scrolled out of view or in a hidden browser tab must not keep the compositor busy.
@@ -153,6 +212,11 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
 
     componentWillUnmount(): void {
         super.componentWillUnmount();
+        this.efUnmounted = true;
+        if (this.efClock) {
+            clearInterval(this.efClock);
+            this.efClock = null;
+        }
         document.removeEventListener('visibilitychange', this.efOnVisibilityChange);
         this.efMotionQuery?.removeEventListener?.('change', this.efOnReducedMotionChange);
         this.efObserver?.disconnect();
@@ -190,13 +254,37 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
         }
     }
 
-    /** The document as configured, tolerant of whatever is actually stored */
+    /** The stored diagram this widget refers to, or null if it carries its own */
+    private get efRef(): string | null {
+        const attribute = readDiagramAttribute(this.state.rxData.diagram);
+        return 'ref' in attribute ? attribute.ref : null;
+    }
+
+    /**
+     * The document to draw: the widget's own, or the stored one it refers to. A reference whose state
+     * has not arrived yet draws an empty diagram -- the "not configured" hint for a moment -- rather
+     * than anything that belonged to a previous reference.
+     */
     private get efConfig(): EnergyFlowConfig {
-        return normalizeConfig(this.state.rxData.diagram);
+        const attribute = readDiagramAttribute(this.state.rxData.diagram);
+        if ('config' in attribute) {
+            return attribute.config;
+        }
+        const stored = this.state.efStored;
+        return stored && stored.id === attribute.ref && stored.config ? stored.config : emptyConfig();
     }
 
     private efOnStateChange = (id: string, state: ioBroker.State | null | undefined): void => {
+        // The referenced diagram arrives through the same subscription as the readings. It is not a
+        // number, and a change to it changes which readings are needed -- so it takes its own path
+        if (id === this.efRef) {
+            this.setState({ efStored: { id, config: parseStoredDiagram(state?.val) } }, () =>
+                this.efSyncSubscriptions(),
+            );
+            return;
+        }
         this.efPending[id] = state ? toNumber(state.val) : null;
+        this.efPendingTimes[id] = { ts: state?.ts, lc: state?.lc, raw: state?.val };
         if (this.efFlushTimer) {
             return;
         }
@@ -204,10 +292,50 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
         this.efFlushTimer = setTimeout(() => {
             this.efFlushTimer = null;
             const batch = this.efPending;
+            const times = this.efPendingTimes;
             this.efPending = {};
-            this.setState(previous => ({ efValues: { ...previous.efValues, ...batch } }));
+            this.efPendingTimes = {};
+            this.setState(previous => ({
+                efValues: { ...previous.efValues, ...batch },
+                efTimes: { ...previous.efTimes, ...times },
+            }));
         }, FLUSH_MS);
     };
+
+    /** Read the recorded values the charts of the diagram need, from the default history adapter */
+    private efLoadHistory(): void {
+        const requests = historyRequests(this.efConfig);
+        const energy = energyRequests(this.efConfig);
+        if ((!requests.length && !energy.length) || this.efHistoryInstance === null) {
+            return;
+        }
+        const socket = this.props.context.socket;
+        const run = (instance: string): void => {
+            const read: HistoryReader = (oid, options) =>
+                socket.getHistory(oid, { instance, aggregate: 'average', ignoreNull: true, ...options });
+            Promise.all([loadHistory(requests, read), loadEnergyToday(energy, read)])
+                .then(([charts, today]) => charts || today)
+                .then(changed => {
+                    if (changed && !this.efUnmounted) {
+                        this.setState(previous => ({ efHistory: previous.efHistory + 1, efNow: Date.now() }));
+                    }
+                })
+                .catch(() => undefined);
+        };
+        if (this.efHistoryInstance) {
+            run(this.efHistoryInstance);
+            return;
+        }
+        socket
+            .getSystemConfig()
+            .then(config => {
+                this.efHistoryInstance = config?.common?.defaultHistory || null;
+                if (this.efHistoryInstance) {
+                    run(this.efHistoryInstance);
+                }
+            })
+            .catch(() => undefined);
+    }
 
     /**
      * Subscribe to what the document reads, unsubscribe from what it no longer does.
@@ -217,7 +345,13 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
      * flash back to "--".
      */
     private efSyncSubscriptions(): void {
+        // The referenced diagram is subscribed like any reading: an edit in the admin tab then reaches
+        // this widget the moment it is saved, without a reload
+        const ref = this.efRef;
         const wanted = collectOids(this.efConfig);
+        if (ref && !wanted.includes(ref)) {
+            wanted.push(ref);
+        }
         const socket = this.props.context.socket;
 
         const added = wanted.filter(id => !this.efSubscribed.includes(id));
@@ -230,6 +364,13 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
             socket
                 .subscribeState(added, this.efOnStateChange)
                 .catch((error: unknown) => console.warn(`energyflow: cannot subscribe: ${String(error)}`));
+            // What the numbers are in comes from the objects; read once per state and page
+            loadUnits(
+                added.filter(id => id !== ref),
+                id => socket.getObject(id),
+            )
+                .then(() => !this.efUnmounted && this.setState(previous => ({ efUnits: previous.efUnits + 1 })))
+                .catch(() => undefined);
         }
 
         this.efSubscribed = wanted;
@@ -288,17 +429,71 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                 }
                 break;
 
+            case 'chart':
+                this.setState({ efDetail: node.id });
+                break;
+
             default:
                 break;
         }
     };
+
+    /** The detail view of a node: its value over time, from the default history adapter */
+    private efRenderDetail(
+        runtime: ReturnType<typeof computeRuntime>,
+        theme: ReturnType<typeof themeFromMui>,
+    ): React.JSX.Element | null {
+        const node = this.state.efDetail ? runtime.nodeById[this.state.efDetail] : undefined;
+        const target = node ? detailTarget(node.node, this.efConfig, cachedUnit) : null;
+        if (!node || !target) {
+            return null;
+        }
+        const socket = this.props.context.socket;
+        return (
+            <HistoryDialog
+                open
+                onClose={() => this.setState({ efDetail: null })}
+                title={node.node.label || node.node.id}
+                color={node.color}
+                theme={theme}
+                unit={target.unit}
+                t={(key, ...args) => EnergyFlow.t(key, ...args.map(String))}
+                load={async (start, end, step) => {
+                    if (this.efHistoryInstance === undefined) {
+                        const config = await socket.getSystemConfig();
+                        this.efHistoryInstance = config?.common?.defaultHistory || null;
+                    }
+                    const instance = this.efHistoryInstance;
+                    if (!instance) {
+                        throw new Error(EnergyFlow.t('insp_history_no_adapter'));
+                    }
+                    return readDetail(
+                        (oid, options) =>
+                            socket.getHistory(oid, { instance, aggregate: 'average', ignoreNull: true, ...options }),
+                        target,
+                        start,
+                        end,
+                        step,
+                    );
+                }}
+            />
+        );
+    }
 
     renderWidgetBody(props: RxRenderWidgetProps): React.JSX.Element {
         super.renderWidgetBody(props);
 
         const config = this.efConfig;
         const theme = themeFromMui(this.props.context.theme, this.props.context.lang);
-        const runtime = computeRuntime(config, oid => this.state.efValues[oid] ?? null, theme);
+        const runtime = computeRuntime(config, oid => this.state.efValues[oid] ?? null, theme, {
+            units: cachedUnit,
+            maxima: cachedMax,
+            times: oid => this.state.efTimes[oid],
+            now: this.state.efNow,
+            history: cachedHistory,
+            raw: oid => this.state.efTimes[oid]?.raw,
+            energy: cachedEnergyToday,
+        });
 
         const content = (
             <div
@@ -331,6 +526,13 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
             </div>
         );
 
-        return this.wrapContent(content, null, { padding: 4 }) as React.JSX.Element;
+        return this.wrapContent(
+            <>
+                {content}
+                {this.efRenderDetail(runtime, theme)}
+            </>,
+            null,
+            { padding: 4 },
+        ) as React.JSX.Element;
     }
 }

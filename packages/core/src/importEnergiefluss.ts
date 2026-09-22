@@ -48,6 +48,10 @@ interface EfElement {
     convert?: boolean;
     calculate_kw?: string | boolean;
     source_display?: string;
+    /** Show the time of the last update (`ts`): -1 for none, else a format name */
+    source_option?: string | number;
+    /** Show the time of the last change (`lc`), same values */
+    source_option_lc?: string | number;
     /** Stroke colour of a rect, text colour of a text */
     color?: string;
     fill?: string;
@@ -94,7 +98,7 @@ export interface EnergieflussDocument {
 export type ImportWarningCode =
     /** An icon that has no counterpart in this widget's set */
     | 'icon-unmapped'
-    /** `calculate_kw: 'none'`, which blanks the unit in the original */
+    /** `calculate_kw: 'none'`, which hides the unit in the original -- here the state's unit shows */
     | 'unit-blanked'
     /** A click action the original supports and this does not */
     | 'action-dropped'
@@ -113,8 +117,13 @@ export interface ImportWarning {
     code: ImportWarningCode;
     /** Element or connection the warning is about */
     ref: string;
-    /** Human-readable detail, already specific enough to act on */
+    /** English sentence, specific enough to act on -- for logs and tests */
     detail: string;
+    /**
+     * The values the sentence names, in order. A user interface builds its own sentence from `code`
+     * and these, in the user's language, instead of showing `detail`.
+     */
+    args: string[];
 }
 
 export interface ImportResult {
@@ -322,19 +331,40 @@ function toFormat(element: EfElement): { unit?: string; decimals?: number; autoS
 
     switch (element.calculate_kw) {
         case 'auto':
-            // Exactly what this widget does by default
-            return { unit: 'W', decimals, autoScale: true };
+            // Exactly what this widget does by default -- with the unit of the state object, which the
+            // original assumed to be watts
+            return { decimals };
         case 'calc':
         case true:
             // The original divides by 1000 and prints kW, whatever the size
             return { unit: 'kW', decimals, autoScale: false, factor: 0.001 };
         case 'none':
         case false:
-            // It blanks the unit -- see the `unit-blanked` warning
-            return { unit: '', decimals, autoScale: false };
+            // The original prints the raw number without a unit. The number stays raw (no scaling), but
+            // the unit of the state object is shown -- see the `unit-blanked` warning
+            return { decimals, autoScale: false };
         default:
             return { unit: element.unit, decimals, autoScale: false };
     }
+}
+
+/**
+ * The original's "show timestamp of last update / last change". Its fixed US and German date
+ * formats become the locale's own; `relative` stays relative, and its millisecond number -- which
+ * nobody reads -- becomes a date.
+ */
+function toTimestamp(element: EfElement): Pick<FlowNode, 'timestamp' | 'timestampFormat'> {
+    const shown = (option: string | number | undefined): boolean =>
+        option !== undefined && option !== -1 && option !== '-1' && option !== '';
+    const [timestamp, option] = shown(element.source_option_lc)
+        ? (['lc', element.source_option_lc] as const)
+        : shown(element.source_option)
+          ? (['ts', element.source_option] as const)
+          : [undefined, undefined];
+    if (!timestamp) {
+        return {};
+    }
+    return option === 'relative' ? { timestamp } : { timestamp, timestampFormat: 'datetime' };
 }
 
 /** Apply a factor to a source without wrapping a plain state in a formula */
@@ -433,7 +463,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
             continue;
         }
         if (element.type === 'image') {
-            warnings.push({ code: 'image-dropped', ref: key, detail: 'Image elements are not imported.' });
+            warnings.push({ code: 'image-dropped', ref: key, detail: 'Image elements are not imported.', args: [] });
             continue;
         }
         const point = centerOf(element);
@@ -484,6 +514,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
                 code: 'icon-unmapped',
                 ref: id,
                 detail: `Icon "${iconName}" has no counterpart; the default icon of the type is used.`,
+                args: [iconName],
             });
         }
 
@@ -506,7 +537,8 @@ export function importEnergiefluss(raw: unknown): ImportResult {
             warnings.push({
                 code: 'unit-blanked',
                 ref: group.valueKey || id,
-                detail: `The original hides the unit "${value.unit}" for this value; it is left empty.`,
+                detail: `The original hides the unit "${value.unit}" for this value; the unit of the state is shown.`,
+                args: [value.unit],
             });
         }
         if (value?.source_display && value.source_display !== 'value') {
@@ -514,6 +546,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
                 code: 'display-mode',
                 ref: group.valueKey || id,
                 detail: `Shows "${value.source_display}" instead of the value; only the value is imported.`,
+                args: [value.source_display],
             });
         }
         if (group.box.action && group.box.action !== 'none') {
@@ -521,6 +554,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
                 code: 'action-dropped',
                 ref: id,
                 detail: `The click action "${group.box.action}" is not imported.`,
+                args: [group.box.action],
             });
         }
 
@@ -559,6 +593,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
         }
         if (source) {
             node.value = source;
+            Object.assign(node, value ? toTimestamp(value) : {});
         }
         if (format.unit !== undefined) {
             node.unit = format.unit;
@@ -585,6 +620,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
             code: 'orphan-value',
             ref: key,
             detail: 'This value was not inside any box; it became a small element of its own.',
+            args: [],
         });
         const format = toFormat(element);
         const source = withFactor(toSource(element, datasources), format.factor);
@@ -604,6 +640,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
         };
         if (source) {
             node.value = source;
+            Object.assign(node, toTimestamp(element));
         }
         if (format.unit !== undefined) {
             node.unit = format.unit;
@@ -626,7 +663,12 @@ export function importEnergiefluss(raw: unknown): ImportResult {
         const ends = parsePathId(pathId);
 
         if (!ends) {
-            warnings.push({ code: 'edge-dropped', ref: key, detail: 'The connection does not name two elements.' });
+            warnings.push({
+                code: 'edge-dropped',
+                ref: key,
+                detail: 'The connection does not name two elements.',
+                args: [key],
+            });
             continue;
         }
         if (!nodeIds.has(ends.from) || !nodeIds.has(ends.to)) {
@@ -634,6 +676,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
                 code: 'edge-dropped',
                 ref: key,
                 detail: `The connection runs to an element that does not exist (${ends.from} -> ${ends.to}).`,
+                args: [`${ends.from} -> ${ends.to}`],
             });
             continue;
         }

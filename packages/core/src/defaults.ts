@@ -64,6 +64,8 @@ const SIZE_BY_SHAPE: Record<NodeShape, { w: number; h: number }> = {
     circle: { w: 92, h: 92 },
     rounded: { w: 124, h: 84 },
     square: { w: 92, h: 92 },
+    // Wide and low: what is left of a node without a body is a line of text
+    none: { w: 110, h: 56 },
 };
 
 /** A junction is only a routing point, so it is drawn far smaller than a real node */
@@ -78,6 +80,29 @@ const ICON_BY_KIND: Record<NodeKind, string> = {
     label: '',
     image: '',
 };
+
+/** From this width-to-height ratio on, a box has room beside its value rather than above it */
+const WIDE_BOX = 1.4;
+
+/**
+ * Where a node's icon goes. A wide, low box -- a pill with a battery and "100 %" -- has no room above
+ * the value: the icon would shrink to a speck and push the value to the bottom edge. Beside the value
+ * it can be as large as the box is high.
+ *
+ * @param node the node
+ * @returns `left` or `top`
+ */
+export function iconPlacement(node: FlowNode): 'top' | 'left' {
+    if (node.iconPosition) {
+        return node.iconPosition;
+    }
+    const shape = nodeShape(node);
+    if (shape === 'circle') {
+        return 'top';
+    }
+    const rect = nodeRect(node);
+    return rect.w >= rect.h * WIDE_BOX ? 'left' : 'top';
+}
 
 /**
  * The shape a node is drawn in.
@@ -135,6 +160,35 @@ export function animationSettings(config: EnergyFlowConfig): Required<AnimationS
  */
 export function edgeWidth(edge: FlowEdge, config: EnergyFlowConfig): number {
     return edge.width ?? config.defaults?.lineWidth ?? DEFAULT_LINE_WIDTH;
+}
+
+/**
+ * The label size of a diagram: node labels and connection values.
+ *
+ * Derived from the value font size unless set, because the canvas is a coordinate system and not
+ * pixels: a fixed 13 looks right on the 900-unit templates and turns into specks on a 1500-unit one.
+ *
+ * @param config the diagram
+ * @returns the size in canvas units
+ */
+export function pageLabelSize(config: EnergyFlowConfig): number {
+    const size = config.defaults?.labelSize;
+    if (typeof size === 'number' && size > 0) {
+        return size;
+    }
+    return Math.round((config.defaults?.fontSize ?? DEFAULT_FONT_SIZE) * 0.75);
+}
+
+/**
+ * The size of one node's label: the diagram's, scaled by the node's `labelScale`.
+ *
+ * @param node the node
+ * @param config the diagram it belongs to
+ * @returns the size in canvas units, to one decimal
+ */
+export function nodeLabelSize(node: FlowNode, config: EnergyFlowConfig): number {
+    const scale = typeof node.labelScale === 'number' && node.labelScale > 0 ? node.labelScale : 1;
+    return Math.round(pageLabelSize(config) * scale * 10) / 10;
 }
 
 /**

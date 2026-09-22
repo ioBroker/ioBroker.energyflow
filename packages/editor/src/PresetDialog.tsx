@@ -17,6 +17,7 @@ import {
 } from '@energyflow/core';
 
 import type { EditorContext } from './types';
+import { AutoFixHigh } from '@mui/icons-material';
 
 export interface PresetDialogProps {
     open: boolean;
@@ -26,6 +27,8 @@ export interface PresetDialogProps {
     theme: EnergyFlowTheme;
     /** Warn that the current diagram will be replaced */
     hasContent: boolean;
+    /** Open the assistant that builds a diagram from the installation's states */
+    onWizard?: () => void;
 }
 
 export function PresetDialog(props: PresetDialogProps): React.JSX.Element {
@@ -114,6 +117,15 @@ export function PresetDialog(props: PresetDialogProps): React.JSX.Element {
                 </Box>
             </DialogContent>
             <DialogActions>
+                {props.onWizard ? (
+                    <Button
+                        startIcon={<AutoFixHigh />}
+                        onClick={props.onWizard}
+                        sx={{ mr: 'auto' }}
+                    >
+                        {context.t('wizard_open')}
+                    </Button>
+                ) : null}
                 <Button onClick={onClose}>{context.t('cancel')}</Button>
             </DialogActions>
         </Dialog>

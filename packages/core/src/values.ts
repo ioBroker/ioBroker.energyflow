@@ -6,7 +6,15 @@
  * values arrive in `this.state.values` keyed `<id>.val`) and inside the device manager (where they
  * come from a `StateContext` subscription).
  */
-import { isSrcConst, isSrcExpr, isSrcState, type EnergyFlowConfig, type Src, type SrcState } from './types';
+import {
+    isSrcConst,
+    isSrcExpr,
+    isSrcSame,
+    isSrcState,
+    type EnergyFlowConfig,
+    type Src,
+    type SrcScaling,
+} from './types';
 import { evalExpr, type ExprValue } from './expr';
 
 /** Reads the current value of a state. `null` means "unknown", not "zero". */
@@ -51,8 +59,8 @@ export function createValueGetter(values: Record<string, unknown>, suffix = ''):
     return (oid: string): number | null => toNumber(values[`${oid}${suffix}`]);
 }
 
-/** Apply the rescaling of a state source: factor, offset, sign, deadband, clamp -- in that order. */
-function applyScaling(value: number, src: SrcState): number {
+/** Apply the rescaling of a source: factor, offset, sign, deadband, clamp -- in that order. */
+function applyScaling(value: number, src: SrcScaling): number {
     let result = value;
     if (src.factor !== undefined) {
         result *= src.factor;
@@ -81,11 +89,18 @@ function applyScaling(value: number, src: SrcState): number {
  *
  * @param src the source, or undefined
  * @param get reads a state
+ * @param sameValue the node's value, for a source that refers to it (`SrcSame`); without it, such a
+ *   source has no value
  * @returns the value, or null if it is unknown
  */
-export function resolveSrc(src: Src | undefined, get: ValueGetter): number | null {
+export function resolveSrc(src: Src | undefined, get: ValueGetter, sameValue?: () => number | null): number | null {
     if (!src) {
         return null;
+    }
+
+    if (isSrcSame(src)) {
+        const base = sameValue ? sameValue() : null;
+        return base === null ? null : applyScaling(base, src);
     }
 
     if (isSrcConst(src)) {
@@ -103,7 +118,7 @@ export function resolveSrc(src: Src | undefined, get: ValueGetter): number | nul
     if (isSrcExpr(src)) {
         const vars: Record<string, ExprValue> = {};
         for (const [name, inner] of Object.entries(src.vars || {})) {
-            vars[name] = resolveSrc(inner, get);
+            vars[name] = resolveSrc(inner, get, sameValue);
         }
         return evalExpr(src.expr, vars);
     }
@@ -128,6 +143,27 @@ function walkSrc(src: Src | undefined, visit: (oid: string) => void): void {
         }
     }
 }
+
+/**
+ * The states a source reads -- one for a plain state, all of them for a formula.
+ *
+ * @param src the source
+ * @returns their ids, without duplicates
+ */
+export function srcOids(src: Src | undefined): string[] {
+    const ids = new Set<string>();
+    walkSrc(src, id => ids.add(id));
+    return [...ids];
+}
+
+/** When a state was last written (`ts`) and last changed its value (`lc`), in ms since the epoch */
+export interface StateTimes {
+    ts?: number;
+    lc?: number;
+}
+
+/** The times of a state, or undefined while none have arrived */
+export type TimeGetter = (oid: string) => StateTimes | undefined;
 
 /**
  * Every state id the diagram reads, without duplicates.

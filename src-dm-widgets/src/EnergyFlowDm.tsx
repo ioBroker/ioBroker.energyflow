@@ -25,15 +25,35 @@ import WidgetGeneric, {
 import type { ConfigItemPanel } from '@iobroker/dm-utils';
 
 import {
+    cachedEnergyToday,
+    cachedHistory,
+    cachedMax,
+    cachedUnit,
     collectOids,
+    detailTarget,
+    energyRequests,
+    historyRequests,
+    loadEnergyToday,
+    loadHistory,
+    needsClock,
+    readDetail,
     computeRuntime,
+    loadUnits,
     EnergyFlowView,
-    normalizeConfig,
+    emptyConfig,
+    parseStoredDiagram,
+    readDiagramAttribute,
     toNumber,
     createTheme,
     type EnergyFlowConfig,
+    type FlowNode,
+    type HistoryReader,
+    type StateTimes,
+    type EnergyFlowConfigRef,
 } from '@energyflow/core';
 import { I18N_PREFIX } from '@energyflow/i18n';
+// By path: the package index would pull the designer and gui-components into the card's chunk
+import { HistoryDialog } from '../../packages/editor/src/HistoryDialog';
 
 /** Where the designer is loaded from when the settings dialog renders the `custom` item */
 const DESIGNER_URL = './adapter/energyflow/dm-widgets/customDevices.js';
@@ -48,19 +68,39 @@ const DESIGNER_URL = './adapter/energyflow/dm-widgets/customDevices.js';
 const DESIGNER_COMPONENT = 'energyflow/Config/Designer';
 
 export interface WidgetEnergyFlowSettings extends CustomWidgetBase {
-    /** The diagram, same document as the vis-2 widget stores */
-    diagram?: EnergyFlowConfig | string;
+    /** The diagram, or a reference to a stored one -- the same value the vis-2 widget stores */
+    diagram?: EnergyFlowConfig | EnergyFlowConfigRef | string;
     noAnimation?: boolean;
 }
 
 interface EnergyFlowDmState extends WidgetGenericState {
     efValues: Record<string, number | null>;
+    /** When each state was written and changed, for nodes that show it */
+    efTimes: Record<string, StateTimes & { raw?: unknown }>;
+    /** The node whose detail view is open */
+    efDetail: string | null;
+    /** The present, advanced while a node shows "12 minutes ago" */
+    efNow: number;
+    /** Bumped when recorded values for the charts have arrived */
+    efHistory: number;
     efDialogOpen: boolean;
     efAnimate: boolean;
+    /** The referenced diagram, as last delivered by its state, with the id it belongs to */
+    efStored: { id: string; config: EnergyFlowConfig | null } | null;
+    /** Bumped when units of the states have arrived, see `units.ts` in the core */
+    efUnits: number;
 }
 
 /** State changes are collected for this long before the card re-renders */
 const FLUSH_MS = 120;
+
+/** How often "12 minutes ago" is recomputed */
+const CLOCK_MS = 30000;
+
+/** The part of the host's socket the charts use */
+interface HistorySocket {
+    getHistory: (id: string, options: ioBroker.GetHistoryOptions) => Promise<unknown>;
+}
 
 /**
  * Translate a key of this adapter. The prefix is applied when the dictionary is registered.
@@ -79,8 +119,13 @@ function t(key: string, ...args: (string | number)[]): string {
 export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyFlowSettings> {
     private efSubscribed: string[] = [];
     private efPending: Record<string, number | null> = {};
+    private efPendingTimes: Record<string, StateTimes & { raw?: unknown }> = {};
+    private efClock: ReturnType<typeof setInterval> | null = null;
+    /** The default history adapter: undefined until asked, null when there is none */
+    private efHistoryInstance: string | null | undefined = undefined;
     private efFlushTimer: ReturnType<typeof setTimeout> | null = null;
     private efReducedMotion = false;
+    private efUnmounted = false;
 
     /**
      * The settings dialog of the host.
@@ -129,6 +174,12 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
             efValues: {},
             efDialogOpen: false,
             efAnimate: true,
+            efStored: null,
+            efUnits: 0,
+            efTimes: {},
+            efDetail: null,
+            efNow: Date.now(),
+            efHistory: 0,
         };
     }
 
@@ -137,6 +188,15 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         // React.Component, where they are optional. The real class the host provides at runtime has them.
         super.componentDidMount?.();
         this.efSyncSubscriptions();
+
+        // "12 minutes ago" has to become "13 minutes ago" without the state changing
+        this.efClock = setInterval(() => {
+            if (needsClock(this.efConfig)) {
+                this.setState({ efNow: Date.now() });
+            }
+            this.efLoadHistory();
+        }, CLOCK_MS);
+        this.efLoadHistory();
 
         if (typeof window.matchMedia === 'function') {
             this.efReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -155,6 +215,11 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
 
     componentWillUnmount(): void {
         super.componentWillUnmount?.();
+        this.efUnmounted = true;
+        if (this.efClock) {
+            clearInterval(this.efClock);
+            this.efClock = null;
+        }
         if (this.efFlushTimer) {
             clearTimeout(this.efFlushTimer);
             this.efFlushTimer = null;
@@ -165,26 +230,101 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         this.efSubscribed = [];
     }
 
+    /** The stored diagram this card refers to, or null if it carries its own */
+    private get efRef(): string | null {
+        const attribute = readDiagramAttribute(this.props.settings?.diagram);
+        return 'ref' in attribute ? attribute.ref : null;
+    }
+
+    /** The document to draw -- see the same getter in the vis-2 widget for the reasoning */
     private get efConfig(): EnergyFlowConfig {
-        return normalizeConfig(this.props.settings?.diagram);
+        const attribute = readDiagramAttribute(this.props.settings?.diagram);
+        if ('config' in attribute) {
+            return attribute.config;
+        }
+        const stored = this.state.efStored;
+        return stored && stored.id === attribute.ref && stored.config ? stored.config : emptyConfig();
     }
 
     private efOnStateChange: StateChangeListener = (id, state) => {
+        // The referenced diagram comes through the same subscription as the readings, and changes
+        // which readings are needed
+        if (id === this.efRef) {
+            this.setState({ efStored: { id, config: parseStoredDiagram(state?.val) } }, () =>
+                this.efSyncSubscriptions(),
+            );
+            return;
+        }
         this.efPending[id] = state ? toNumber(state.val) : null;
+        this.efPendingTimes[id] = { ts: state?.ts, lc: state?.lc, raw: state?.val };
         if (this.efFlushTimer) {
             return;
         }
         this.efFlushTimer = setTimeout(() => {
             this.efFlushTimer = null;
             const batch = this.efPending;
+            const times = this.efPendingTimes;
             this.efPending = {};
-            this.setState(previous => ({ efValues: { ...previous.efValues, ...batch } }));
+            this.efPendingTimes = {};
+            this.setState(previous => ({
+                efValues: { ...previous.efValues, ...batch },
+                efTimes: { ...previous.efTimes, ...times },
+            }));
         }, FLUSH_MS);
     };
 
+    /**
+     * Read the recorded values the charts of the diagram need.
+     *
+     * The state context of the device manager has no history call of its own, but it is built on a
+     * socket that does. The field is `protected` in the typings only; where it is missing, the card
+     * simply has no charts.
+     */
+    private efLoadHistory(): void {
+        const requests = historyRequests(this.efConfig);
+        const energy = energyRequests(this.efConfig);
+        const socket = (this.props.stateContext as unknown as { socket?: HistorySocket }).socket;
+        if (
+            (!requests.length && !energy.length) ||
+            this.efHistoryInstance === null ||
+            typeof socket?.getHistory !== 'function'
+        ) {
+            return;
+        }
+        const run = (instance: string): void => {
+            const read: HistoryReader = (oid, options) =>
+                socket.getHistory(oid, { instance, aggregate: 'average', ignoreNull: true, ...options });
+            Promise.all([loadHistory(requests, read), loadEnergyToday(energy, read)])
+                .then(([charts, today]) => charts || today)
+                .then(changed => {
+                    if (changed && !this.efUnmounted) {
+                        this.setState(previous => ({ efHistory: previous.efHistory + 1, efNow: Date.now() }));
+                    }
+                })
+                .catch(() => undefined);
+        };
+        if (this.efHistoryInstance) {
+            run(this.efHistoryInstance);
+            return;
+        }
+        this.props.stateContext
+            .getObject<ioBroker.SystemConfigObject>('system.config')
+            .then(config => {
+                this.efHistoryInstance = config?.common?.defaultHistory || null;
+                if (this.efHistoryInstance) {
+                    run(this.efHistoryInstance);
+                }
+            })
+            .catch(() => undefined);
+    }
+
     /** Subscribe to what the document reads, unsubscribe from what it no longer does */
     private efSyncSubscriptions(): void {
+        const ref = this.efRef;
         const wanted = collectOids(this.efConfig);
+        if (ref && !wanted.includes(ref)) {
+            wanted.push(ref);
+        }
         const context = this.props.stateContext;
 
         for (const id of this.efSubscribed) {
@@ -192,12 +332,21 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                 context.removeState(id, this.efOnStateChange);
             }
         }
-        for (const id of wanted) {
-            if (!this.efSubscribed.includes(id)) {
-                context.getState(id, this.efOnStateChange);
-            }
+        const added = wanted.filter(id => !this.efSubscribed.includes(id));
+        for (const id of added) {
+            context.getState(id, this.efOnStateChange);
         }
         this.efSubscribed = wanted;
+
+        // What the numbers are in comes from the objects; read once per state and page
+        if (added.length) {
+            loadUnits(
+                added.filter(id => id !== ref),
+                id => context.getObject<ioBroker.Object>(id),
+            )
+                .then(() => !this.efUnmounted && this.setState(previous => ({ efUnits: previous.efUnits + 1 })))
+                .catch(() => undefined);
+        }
     }
 
     /** The theme of the host, reduced to the handful of colours the renderer needs */
@@ -208,7 +357,15 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
     }
 
     private efRuntime(): ReturnType<typeof computeRuntime> {
-        return computeRuntime(this.efConfig, oid => this.state.efValues[oid] ?? null, this.efTheme());
+        return computeRuntime(this.efConfig, oid => this.state.efValues[oid] ?? null, this.efTheme(), {
+            units: cachedUnit,
+            maxima: cachedMax,
+            times: oid => this.state.efTimes[oid],
+            now: this.state.efNow,
+            history: cachedHistory,
+            raw: oid => this.state.efTimes[oid]?.raw,
+            energy: cachedEnergyToday,
+        });
     }
 
     // --- Overrides used by the host's default card chrome ---
@@ -280,6 +437,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                 theme={theme}
                 animate={this.state.efAnimate}
                 hideLabels={hideLabels}
+                onNodeClick={this.efOnNodeClick}
             />
         );
     }
@@ -288,6 +446,54 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
      * The full diagram, big. A card of any size is too small for a five-node diagram with labels, so
      * the card is a summary and this is the thing itself.
      */
+    /** The card only offers the detail view; switching and writing belong to the device's own controls */
+    private efOnNodeClick = (node: FlowNode): void => {
+        if (node.action?.type === 'chart') {
+            this.setState({ efDetail: node.id });
+        }
+    };
+
+    /** The detail view of a node: its value over time, from the default history adapter */
+    private efRenderDetail(): React.JSX.Element | null {
+        const runtime = this.efRuntime();
+        const node = this.state.efDetail ? runtime.nodeById[this.state.efDetail] : undefined;
+        const target = node ? detailTarget(node.node, this.efConfig, cachedUnit) : null;
+        const socket = (this.props.stateContext as unknown as { socket?: HistorySocket }).socket;
+        if (!node || !target) {
+            return null;
+        }
+        return (
+            <HistoryDialog
+                open
+                onClose={() => this.setState({ efDetail: null })}
+                title={node.node.label || node.node.id}
+                color={node.color}
+                theme={this.efTheme()}
+                unit={target.unit}
+                t={t}
+                load={async (start, end, step) => {
+                    if (this.efHistoryInstance === undefined) {
+                        const config =
+                            await this.props.stateContext.getObject<ioBroker.SystemConfigObject>('system.config');
+                        this.efHistoryInstance = config?.common?.defaultHistory || null;
+                    }
+                    const instance = this.efHistoryInstance;
+                    if (!instance || typeof socket?.getHistory !== 'function') {
+                        throw new Error(t('insp_history_no_adapter'));
+                    }
+                    return readDetail(
+                        (oid, options) =>
+                            socket.getHistory(oid, { instance, aggregate: 'average', ignoreNull: true, ...options }),
+                        target,
+                        start,
+                        end,
+                        step,
+                    );
+                }}
+            />
+        );
+    }
+
     private efRenderDialog(): React.JSX.Element | null {
         if (!this.state.efDialogOpen) {
             return null;
@@ -342,6 +548,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                 </Box>
                 {this.renderSettingsButton()}
                 {this.efRenderDialog()}
+                {this.efRenderDetail()}
             </Box>
         );
     }
@@ -391,6 +598,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                 </Box>
                 {this.renderSettingsButton()}
                 {this.efRenderDialog()}
+                {this.efRenderDetail()}
             </Box>
         );
     }

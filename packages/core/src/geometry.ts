@@ -26,6 +26,43 @@ export interface EdgeGeometry {
     midDir: Point;
     /** Approximate length in canvas units */
     length: number;
+    /** Where the route starts and ends, and the direction of travel there -- for arrowheads at the ends */
+    start: Point;
+    startDir: Point;
+    end: Point;
+    endDir: Point;
+    /** The middle segment of an orthogonal route, which the editor lets the user drag sideways */
+    segment?: EdgeSegment;
+}
+
+/**
+ * The middle segment of an orthogonal route: vertical between two horizontal ends, horizontal between
+ * two vertical ones. It is the one part of such a route that can move without breaking it.
+ */
+export interface EdgeSegment {
+    /** `x`: a vertical segment, moved left and right; `y`: a horizontal one, moved up and down */
+    axis: 'x' | 'y';
+    start: Point;
+    end: Point;
+    /** The coordinate on `axis` of the route's start -- `bend` 0 */
+    fromValue: number;
+    /** ...and of its end -- `bend` 1 */
+    toValue: number;
+}
+
+/**
+ * The `bend` that puts a middle segment at a coordinate.
+ *
+ * @param segment the segment being dragged
+ * @param value the coordinate on its axis
+ * @returns a fraction between 0 and 1
+ */
+export function bendAt(segment: EdgeSegment, value: number): number {
+    const span = segment.toValue - segment.fromValue;
+    if (Math.abs(span) < 1e-6) {
+        return 0.5;
+    }
+    return Math.min(Math.max((value - segment.fromValue) / span, 0), 1);
 }
 
 const SIDE_NORMALS: Record<Exclude<Side, 'auto'>, Point> = {
@@ -183,6 +220,21 @@ function roundedPolyline(points: Point[], radius: number): string {
     return d;
 }
 
+/** The ends of a polyline and the direction of travel at each, skipping segments of no length */
+function polylineEnds(points: Point[]): Pick<EdgeGeometry, 'start' | 'startDir' | 'end' | 'endDir'> {
+    const first = points[0];
+    const last = points[points.length - 1];
+    const next = points.find(point => length({ x: point.x - first.x, y: point.y - first.y }) > 1e-6) ?? last;
+    const previous =
+        [...points].reverse().find(point => length({ x: last.x - point.x, y: last.y - point.y }) > 1e-6) ?? first;
+    return {
+        start: first,
+        startDir: normalize({ x: next.x - first.x, y: next.y - first.y }),
+        end: last,
+        endDir: normalize({ x: last.x - previous.x, y: last.y - previous.y }),
+    };
+}
+
 /** Total length of a polyline */
 function polylineLength(points: Point[]): number {
     let total = 0;
@@ -214,28 +266,53 @@ function polylineMid(points: Point[]): { mid: Point; midDir: Point } {
     return { mid: last, midDir: { x: 1, y: 0 } };
 }
 
+/** Below this distance between the two ends a middle segment has nowhere to go */
+const MIN_SEGMENT_SPAN = 2;
+
 /**
  * A right-angled route between two anchors.
  *
  * The shape depends on whether each end leaves horizontally or vertically: two horizontal ends get
- * a vertical connecting segment in the middle, a horizontal and a vertical end get a single corner.
+ * a vertical connecting segment, two vertical ends a horizontal one -- at `bend` of the way from start
+ * to end -- and a horizontal and a vertical end get a single corner.
  */
-function orthogonalPoints(from: Anchor, to: Anchor): Point[] {
+function orthogonalPoints(from: Anchor, to: Anchor, bend: number): { points: Point[]; segment?: EdgeSegment } {
     const fromHorizontal = Math.abs(from.dir.x) > Math.abs(from.dir.y);
     const toHorizontal = Math.abs(to.dir.x) > Math.abs(to.dir.y);
+    const at = Math.min(Math.max(bend, 0), 1);
 
     if (fromHorizontal && toHorizontal) {
-        const mx = (from.point.x + to.point.x) / 2;
-        return [from.point, { x: mx, y: from.point.y }, { x: mx, y: to.point.y }, to.point];
+        const mx = from.point.x + (to.point.x - from.point.x) * at;
+        const start = { x: mx, y: from.point.y };
+        const end = { x: mx, y: to.point.y };
+        return {
+            points: [from.point, start, end, to.point],
+            // Room to move it, and something to move: two ends at the same height have a middle
+            // segment of length zero, and a grip on a straight line would only confuse
+            segment:
+                Math.abs(to.point.x - from.point.x) >= MIN_SEGMENT_SPAN &&
+                Math.abs(to.point.y - from.point.y) >= MIN_SEGMENT_SPAN
+                    ? { axis: 'x', start, end, fromValue: from.point.x, toValue: to.point.x }
+                    : undefined,
+        };
     }
     if (!fromHorizontal && !toHorizontal) {
-        const my = (from.point.y + to.point.y) / 2;
-        return [from.point, { x: from.point.x, y: my }, { x: to.point.x, y: my }, to.point];
+        const my = from.point.y + (to.point.y - from.point.y) * at;
+        const start = { x: from.point.x, y: my };
+        const end = { x: to.point.x, y: my };
+        return {
+            points: [from.point, start, end, to.point],
+            segment:
+                Math.abs(to.point.y - from.point.y) >= MIN_SEGMENT_SPAN &&
+                Math.abs(to.point.x - from.point.x) >= MIN_SEGMENT_SPAN
+                    ? { axis: 'y', start, end, fromValue: from.point.y, toValue: to.point.y }
+                    : undefined,
+        };
     }
     if (fromHorizontal) {
-        return [from.point, { x: to.point.x, y: from.point.y }, to.point];
+        return { points: [from.point, { x: to.point.x, y: from.point.y }, to.point] };
     }
-    return [from.point, { x: from.point.x, y: to.point.y }, to.point];
+    return { points: [from.point, { x: from.point.x, y: to.point.y }, to.point] };
 }
 
 /** How far the Bézier control points are pushed out along the anchor directions */
@@ -254,6 +331,7 @@ function controlOffset(from: Point, to: Point): number {
  * @param curve the requested shape
  * @param waypoints fixed intermediate points; they force a polyline route
  * @param cornerRadius how much the corners of a polyline are rounded
+ * @param bend where the middle segment of an orthogonal route runs, see `FlowEdge.bend`
  * @returns path, midpoint and length
  */
 export function edgeGeometry(
@@ -262,6 +340,7 @@ export function edgeGeometry(
     curve: EdgeCurve = 'bezier',
     waypoints?: Point[],
     cornerRadius = 16,
+    bend = 0.5,
 ): EdgeGeometry {
     const hasWaypoints = Array.isArray(waypoints) && waypoints.length > 0;
 
@@ -270,7 +349,13 @@ export function edgeGeometry(
     if (hasWaypoints) {
         const points = [from.point, ...waypoints, to.point];
         const { mid, midDir } = polylineMid(points);
-        return { d: roundedPolyline(points, cornerRadius), mid, midDir, length: polylineLength(points) };
+        return {
+            d: roundedPolyline(points, cornerRadius),
+            mid,
+            midDir,
+            length: polylineLength(points),
+            ...polylineEnds(points),
+        };
     }
 
     if (curve === 'straight') {
@@ -281,13 +366,21 @@ export function edgeGeometry(
             mid,
             midDir,
             length: polylineLength(points),
+            ...polylineEnds(points),
         };
     }
 
     if (curve === 'orthogonal') {
-        const points = orthogonalPoints(from, to);
+        const { points, segment } = orthogonalPoints(from, to, bend);
         const { mid, midDir } = polylineMid(points);
-        return { d: roundedPolyline(points, cornerRadius), mid, midDir, length: polylineLength(points) };
+        return {
+            d: roundedPolyline(points, cornerRadius),
+            mid,
+            midDir,
+            length: polylineLength(points),
+            segment,
+            ...polylineEnds(points),
+        };
     }
 
     const offset = controlOffset(from.point, to.point);
@@ -299,6 +392,10 @@ export function edgeGeometry(
         mid: cubicAt(from.point, c1, c2, to.point, 0.5),
         midDir: cubicTangentAt(from.point, c1, c2, to.point, 0.5),
         length: cubicLength(from.point, c1, c2, to.point),
+        start: from.point,
+        startDir: cubicTangentAt(from.point, c1, c2, to.point, 0),
+        end: to.point,
+        endDir: cubicTangentAt(from.point, c1, c2, to.point, 1),
     };
 }
 

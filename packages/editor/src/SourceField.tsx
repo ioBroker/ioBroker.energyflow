@@ -24,7 +24,7 @@ import {
     Tooltip,
     Typography,
 } from '@mui/material';
-import { Add, Clear, ExpandMore, Functions, List as ListIcon, Numbers } from '@mui/icons-material';
+import { Add, Clear, DragHandle, ExpandMore, Functions, List as ListIcon, Numbers } from '@mui/icons-material';
 import { DialogSelectID } from '@iobroker/gui-components';
 
 import {
@@ -32,14 +32,16 @@ import {
     exprVariables,
     isSrcConst,
     isSrcExpr,
+    isSrcSame,
     isSrcState,
     type Src,
+    type SrcScaling,
     type SrcState,
 } from '@energyflow/core';
 
 import type { EditorContext } from './types';
 
-type SrcMode = 'state' | 'expr' | 'const';
+type SrcMode = 'state' | 'expr' | 'const' | 'same';
 
 function modeOf(src: Src | undefined): SrcMode {
     if (!src) {
@@ -50,6 +52,9 @@ function modeOf(src: Src | undefined): SrcMode {
     }
     if (isSrcConst(src)) {
         return 'const';
+    }
+    if (isSrcSame(src)) {
+        return 'same';
     }
     return 'state';
 }
@@ -63,19 +68,15 @@ const SCALING_FIELDS: { key: 'factor' | 'offset' | 'deadband' | 'min' | 'max'; l
     { key: 'max', label: 'src_max', tooltip: 'src_max_tooltip' },
 ];
 
-export interface StateSourceRowProps {
-    value: SrcState;
-    onChange: (src: SrcState) => void;
+/** The rescaling knobs behind a fold, for any source that has them */
+export function ScalingFields<T extends SrcScaling>(props: {
+    value: T;
+    onChange: (value: T) => void;
     context: EditorContext;
-    label: string;
-    /** Hide the rescaling section -- used for the variables of a formula, which stay compact */
-    compact?: boolean;
-}
-
-/** State id plus, behind a fold, the rescaling */
-export function StateSourceRow(props: StateSourceRowProps): React.JSX.Element {
-    const { value, onChange, context, label, compact } = props;
-    const [pickerOpen, setPickerOpen] = React.useState(false);
+    /** Open from the start -- where the rescaling is the whole point of the source */
+    defaultExpanded?: boolean;
+}): React.JSX.Element {
+    const { value, onChange, context } = props;
 
     const hasScaling =
         value.factor !== undefined ||
@@ -98,6 +99,80 @@ export function StateSourceRow(props: StateSourceRowProps): React.JSX.Element {
         }
         onChange(next);
     };
+
+    return (
+        <Accordion
+            disableGutters
+            elevation={0}
+            defaultExpanded={props.defaultExpanded}
+            sx={{ background: 'transparent', '&::before': { display: 'none' } }}
+        >
+            {/* Padded on both sides: the admin theme draws the accordion as an outlined box,
+                and text flush with that outline reads as a rendering error */}
+            <AccordionSummary
+                expandIcon={<ExpandMore />}
+                sx={{ px: 1.5, minHeight: 36 }}
+            >
+                <Typography
+                    variant="caption"
+                    color={hasScaling ? 'primary' : 'text.secondary'}
+                >
+                    {context.t('src_scaling')}
+                    {hasScaling ? ' •' : ''}
+                </Typography>
+            </AccordionSummary>
+            <AccordionDetails sx={{ px: 1.5, pt: 0, pb: 1.5 }}>
+                <Box
+                    sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
+                        gap: 1,
+                    }}
+                >
+                    {SCALING_FIELDS.map(field => (
+                        <Tooltip
+                            key={field.key}
+                            title={context.t(field.tooltip)}
+                        >
+                            <TextField
+                                variant="standard"
+                                size="small"
+                                label={context.t(field.label)}
+                                value={value[field.key] ?? ''}
+                                onChange={event => setNumber(field.key, event.target.value)}
+                                slotProps={{ htmlInput: { inputMode: 'decimal' } }}
+                            />
+                        </Tooltip>
+                    ))}
+                </Box>
+                <Tooltip title={context.t('src_invert_tooltip')}>
+                    <Button
+                        size="small"
+                        sx={{ mt: 1 }}
+                        variant={value.invert ? 'contained' : 'outlined'}
+                        onClick={() => onChange({ ...value, invert: !value.invert })}
+                    >
+                        {context.t('src_invert')}
+                    </Button>
+                </Tooltip>
+            </AccordionDetails>
+        </Accordion>
+    );
+}
+
+export interface StateSourceRowProps {
+    value: SrcState;
+    onChange: (src: SrcState) => void;
+    context: EditorContext;
+    label: string;
+    /** Hide the rescaling section -- used for the variables of a formula, which stay compact */
+    compact?: boolean;
+}
+
+/** State id plus, behind a fold, the rescaling */
+export function StateSourceRow(props: StateSourceRowProps): React.JSX.Element {
+    const { value, onChange, context, label, compact } = props;
+    const [pickerOpen, setPickerOpen] = React.useState(false);
 
     return (
         <>
@@ -126,59 +201,11 @@ export function StateSourceRow(props: StateSourceRowProps): React.JSX.Element {
             </Stack>
 
             {compact ? null : (
-                <Accordion
-                    disableGutters
-                    elevation={0}
-                    sx={{ background: 'transparent', '&::before': { display: 'none' } }}
-                >
-                    <AccordionSummary
-                        expandIcon={<ExpandMore />}
-                        sx={{ px: 0, minHeight: 36 }}
-                    >
-                        <Typography
-                            variant="caption"
-                            color={hasScaling ? 'primary' : 'text.secondary'}
-                        >
-                            {context.t('src_scaling')}
-                            {hasScaling ? ' •' : ''}
-                        </Typography>
-                    </AccordionSummary>
-                    <AccordionDetails sx={{ px: 0, pt: 0 }}>
-                        <Box
-                            sx={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
-                                gap: 1,
-                            }}
-                        >
-                            {SCALING_FIELDS.map(field => (
-                                <Tooltip
-                                    key={field.key}
-                                    title={context.t(field.tooltip)}
-                                >
-                                    <TextField
-                                        variant="standard"
-                                        size="small"
-                                        label={context.t(field.label)}
-                                        value={value[field.key] ?? ''}
-                                        onChange={event => setNumber(field.key, event.target.value)}
-                                        slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-                                    />
-                                </Tooltip>
-                            ))}
-                        </Box>
-                        <Tooltip title={context.t('src_invert_tooltip')}>
-                            <Button
-                                size="small"
-                                sx={{ mt: 1 }}
-                                variant={value.invert ? 'contained' : 'outlined'}
-                                onClick={() => onChange({ ...value, invert: !value.invert })}
-                            >
-                                {context.t('src_invert')}
-                            </Button>
-                        </Tooltip>
-                    </AccordionDetails>
-                </Accordion>
+                <ScalingFields
+                    value={value}
+                    onChange={onChange}
+                    context={context}
+                />
             )}
 
             {pickerOpen ? (
@@ -210,10 +237,12 @@ export interface SourceFieldProps {
     context: EditorContext;
     /** Show a button that removes the binding altogether */
     clearable?: boolean;
+    /** Offer "same as the value" -- for the charge level and the extra values of a node */
+    sameAsValue?: boolean;
 }
 
 export function SourceField(props: SourceFieldProps): React.JSX.Element {
-    const { label, value, onChange, context, clearable } = props;
+    const { label, value, onChange, context, clearable, sameAsValue } = props;
     const mode = modeOf(value);
 
     /**
@@ -246,6 +275,8 @@ export function SourceField(props: SourceFieldProps): React.JSX.Element {
         }
         if (next === 'state') {
             onChange({ oid: '' });
+        } else if (next === 'same') {
+            onChange({ same: 'value' });
         } else if (next === 'const') {
             onChange({ const: 0 });
         } else {
@@ -333,6 +364,18 @@ export function SourceField(props: SourceFieldProps): React.JSX.Element {
                                 <span>{context.t('src_mode_const')}</span>
                             </Stack>
                         </MenuItem>
+                        {sameAsValue || mode === 'same' ? (
+                            <MenuItem value="same">
+                                <Stack
+                                    sx={{ alignItems: 'center' }}
+                                    direction="row"
+                                    spacing={0.75}
+                                >
+                                    <DragHandle fontSize="small" />
+                                    <span>{context.t('src_mode_same')}</span>
+                                </Stack>
+                            </MenuItem>
+                        ) : null}
                     </Select>
                 </FormControl>
                 {clearable && value ? (
@@ -354,6 +397,24 @@ export function SourceField(props: SourceFieldProps): React.JSX.Element {
                     context={context}
                     label={context.t('src_state')}
                 />
+            ) : null}
+
+            {mode === 'same' && value && isSrcSame(value) ? (
+                <>
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: 'block', mb: 0.5 }}
+                    >
+                        {context.t('src_same_hint')}
+                    </Typography>
+                    <ScalingFields
+                        value={value}
+                        onChange={next => onChange(next)}
+                        context={context}
+                        defaultExpanded
+                    />
+                </>
             ) : null}
 
             {mode === 'const' ? (

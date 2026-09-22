@@ -156,9 +156,21 @@ export function muteColor(color: string, theme: EnergyFlowTheme, amount = 0.72):
  * Parse the colour notations that can actually turn up in a document into `[r, g, b]`.
  *
  * `#rgb` and `#rrggbb` come from the colour picker, `rgb()` / `rgba()` from a hand-edited document or
- * from a picker that was left in another notation. Anything else -- a colour name, `hsl()`, a CSS
- * variable -- yields null, and the callers fall back instead of drawing something wrong.
+ * from a picker that was left in another notation, `hsl()` from a colour scale. Anything else -- a
+ * colour name, a CSS variable -- yields null, and the callers fall back instead of drawing something
+ * wrong.
  */
+/** HSL to RGB, the textbook conversion */
+function hslToRgb(hue: number, saturation: number, lightness: number): [number, number, number] {
+    const h = (((hue % 360) + 360) % 360) / 360;
+    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const channel = (offset: number): number => {
+        const k = (offset + h * 12) % 12;
+        return Math.round(255 * (lightness - (chroma / 2) * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+    };
+    return [channel(0), channel(8), channel(4)];
+}
+
 function parseHex(color: string): [number, number, number] | null {
     if (typeof color !== 'string') {
         return null;
@@ -172,6 +184,19 @@ function parseHex(color: string): [number, number, number] | null {
         }
         if (hex.length === 6 || hex.length === 8) {
             return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+        }
+        return null;
+    }
+
+    // `hsl(120, 72%, 46%)` -- what a colour scale produces, and what people type by hand
+    const hsl = /^hsla?\(([^)]+)\)$/i.exec(value);
+    if (hsl) {
+        const [h, sat, light] = hsl[1]
+            .split(/[\s,/]+/)
+            .filter(Boolean)
+            .map(part => parseFloat(part));
+        if ([h, sat, light].every(Number.isFinite)) {
+            return hslToRgb(h, sat / 100, light / 100);
         }
         return null;
     }

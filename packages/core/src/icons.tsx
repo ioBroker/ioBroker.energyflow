@@ -22,6 +22,11 @@ export interface IconDefinition {
     category: 'production' | 'storage' | 'grid' | 'consumption' | 'misc';
     /** i18n key of the label shown in the picker */
     label: string;
+    /**
+     * For an icon that can show a level (the battery): the empty outline, and the box inside it that
+     * fills from the bottom. Used instead of `body` when a level is known.
+     */
+    level?: { outline: React.ReactElement; x: number; y: number; w: number; h: number };
 }
 
 /** Eight rays around the sun, computed so the angles are exact */
@@ -128,6 +133,31 @@ export const BUILTIN_ICONS: Record<string, IconDefinition> = {
                 <path d="M9.5 16.5 H14.5" />
             </>
         ),
+        // With a charge level the fixed bar goes: it reads as "almost empty" at 98 %
+        level: {
+            outline: (
+                <>
+                    <rect
+                        x="7"
+                        y="5.5"
+                        width="10"
+                        height="15.5"
+                        rx="2"
+                    />
+                    <rect
+                        x="10"
+                        y="2.5"
+                        width="4"
+                        height="3"
+                        rx="1"
+                    />
+                </>
+            ),
+            x: 8.9,
+            y: 7.4,
+            w: 6.2,
+            h: 11.7,
+        },
     },
     grid: {
         mode: 'stroke',
@@ -458,6 +488,8 @@ export interface IconRenderOptions {
     /** Edge length of the square the icon is drawn into, in canvas units */
     size: number;
     color: string;
+    /** A level in percent, for an icon that can show one -- the battery's state of charge */
+    level?: number | null;
 }
 
 /**
@@ -482,6 +514,11 @@ export function renderBuiltinIcon(name: string | undefined, options: IconRenderO
     const scale = options.size / 24;
     const transform = `translate(${options.x - options.size / 2} ${options.y - options.size / 2}) scale(${scale})`;
     const stroked = definition.mode === 'stroke';
+    const box = definition.level;
+    const level =
+        box && typeof options.level === 'number' && Number.isFinite(options.level)
+            ? Math.min(Math.max(options.level, 0), 100)
+            : null;
 
     return (
         <g
@@ -494,7 +531,24 @@ export function renderBuiltinIcon(name: string | undefined, options: IconRenderO
             strokeLinecap="round"
             strokeLinejoin="round"
         >
-            {definition.body}
+            {box && level !== null ? (
+                <>
+                    {box.outline}
+                    {level > 0 ? (
+                        <rect
+                            x={box.x}
+                            y={box.y + box.h * (1 - level / 100)}
+                            width={box.w}
+                            height={box.h * (level / 100)}
+                            rx={0.8}
+                            fill={options.color}
+                            stroke="none"
+                        />
+                    ) : null}
+                </>
+            ) : (
+                definition.body
+            )}
         </g>
     );
 }

@@ -30,16 +30,12 @@ import {
     Tooltip,
     Typography,
 } from '@mui/material';
-import { ContentCopy, Download } from '@mui/icons-material';
+import { ContentCopy, Download, FolderOpen } from '@mui/icons-material';
 
-import {
-    importEnergiefluss,
-    isEnergiefluss,
-    normalizeConfig,
-    type EnergyFlowConfig,
-    type ImportResult,
-} from '@energyflow/core';
+import { readImport, type EnergyFlowConfig, type ImportItem } from '@energyflow/core';
 
+import { downloadText, pickFiles } from './fileTransfer';
+import { importErrorText } from './importMessages';
 import type { EditorContext } from './types';
 
 export interface JsonDialogProps {
@@ -48,47 +44,32 @@ export interface JsonDialogProps {
     onClose: () => void;
     onApply: (config: EnergyFlowConfig) => void;
     context: EditorContext;
+    /** Suggested name of the downloaded file; the diagram's name makes a better one than a constant */
+    fileName?: string;
 }
 
 /** What the text in the box turned out to be */
-type Parsed =
-    | { kind: 'own'; config: EnergyFlowConfig }
-    | { kind: 'energiefluss'; result: ImportResult }
-    | { kind: 'error'; message: string };
+type Parsed = { kind: 'item'; item: ImportItem } | { kind: 'error'; message: string };
 
+/**
+ * Read the box with the same reader the admin tab uses for files, so a text that imports in one place
+ * imports in the other. Only a single diagram fits here -- the box replaces the diagram being edited --
+ * so a set of several is sent to the admin tab, where each becomes a diagram of its own.
+ */
 function parseText(text: string, t: EditorContext['t']): Parsed {
-    let value: unknown;
-    try {
-        value = JSON.parse(text);
-    } catch (error) {
-        return { kind: 'error', message: error instanceof Error ? error.message : String(error) };
+    const result = readImport(text, '');
+    if ('error' in result) {
+        return { kind: 'error', message: importErrorText(result.error, result.detail, t) };
     }
-
-    if (!value || typeof value !== 'object') {
-        return { kind: 'error', message: t('json_not_an_object') };
+    if (result.items.length > 1) {
+        return { kind: 'error', message: t('json_bundle_many', result.items.length) };
     }
-
-    // Checked before the own format, because an energiefluss document has none of our keys and would
-    // otherwise normalise into an empty diagram without anybody noticing
-    if (isEnergiefluss(value)) {
-        const result = importEnergiefluss(value);
-        if (!result.config.nodes.length) {
-            return { kind: 'error', message: t('json_ef_nothing') };
-        }
-        return { kind: 'energiefluss', result };
-    }
-
-    const config = normalizeConfig(value);
-    if (!config.nodes.length && (value as EnergyFlowConfig).nodes?.length) {
-        // Everything was dropped, which means none of the nodes had an id
-        return { kind: 'error', message: t('json_no_valid_nodes') };
-    }
-    return { kind: 'own', config };
+    return { kind: 'item', item: result.items[0] };
 }
 
 /** The dialog body, mounted fresh each time so the text starts from the current diagram */
 function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element {
-    const { config, onClose, onApply, context } = props;
+    const { config, onClose, onApply, context, fileName } = props;
     const [text, setText] = React.useState(() => JSON.stringify(config, null, 4));
     const [copied, setCopied] = React.useState(false);
 
@@ -109,24 +90,27 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
             .catch(() => setCopied(false));
     };
 
-    const download = (): void => {
-        const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'energyflow.json';
-        link.click();
-        URL.revokeObjectURL(url);
+    const download = (): void => downloadText(fileName || 'energyflow.json', text);
+
+    /** Put a file's content into the box; applying it is still a separate, deliberate step */
+    const openFile = (): void => {
+        pickFiles()
+            .then(files => {
+                if (files[0]) {
+                    setText(files[0].text);
+                }
+            })
+            .catch((caught: unknown) => console.warn(`energyflow: cannot read the file: ${String(caught)}`));
     };
 
     const apply = (): void => {
-        if (parsed.kind === 'own') {
-            onApply(parsed.config);
-            onClose();
-        } else if (parsed.kind === 'energiefluss') {
-            onApply(parsed.result.config);
+        if (parsed.kind === 'item') {
+            onApply(parsed.item.config);
             onClose();
         }
     };
+
+    const fromEnergiefluss = parsed.kind === 'item' && parsed.item.source === 'energiefluss';
 
     return (
         <>
@@ -154,6 +138,14 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
                             <Download fontSize="small" />
                         </IconButton>
                     </Tooltip>
+                    <Tooltip title={context.t('json_open_file')}>
+                        <IconButton
+                            size="small"
+                            onClick={openFile}
+                        >
+                            <FolderOpen fontSize="small" />
+                        </IconButton>
+                    </Tooltip>
                 </Stack>
 
                 <TextField
@@ -174,9 +166,9 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
                     >
                         {error}
                     </Alert>
-                ) : parsed.kind === 'energiefluss' ? (
+                ) : parsed.kind === 'item' && fromEnergiefluss ? (
                     <ImportSummary
-                        result={parsed.result}
+                        item={parsed.item}
                         context={context}
                     />
                 ) : (
@@ -195,7 +187,7 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
                     disabled={!!error}
                     onClick={apply}
                 >
-                    {parsed.kind === 'energiefluss' ? context.t('json_ef_apply') : context.t('json_apply')}
+                    {fromEnergiefluss ? context.t('json_ef_apply') : context.t('json_apply')}
                 </Button>
             </DialogActions>
         </>
@@ -209,9 +201,15 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
  * produces twenty near-identical lines otherwise, and the thing worth reading is *which* kinds of
  * thing did not survive, with an example of each.
  */
-function ImportSummary(props: { result: ImportResult; context: EditorContext }): React.JSX.Element {
-    const { result, context } = props;
-    const { stats, warnings } = result;
+export function ImportSummary(props: { item: ImportItem; context: EditorContext }): React.JSX.Element {
+    const { item, context } = props;
+    const { warnings } = item;
+    const stats = item.stats ?? {
+        nodes: item.config.nodes.length,
+        edges: item.config.edges.length,
+        merged: 0,
+        bindings: 0,
+    };
 
     const grouped = React.useMemo(() => {
         const byCode = new Map<string, { count: number; first: string }>();
@@ -220,11 +218,14 @@ function ImportSummary(props: { result: ImportResult; context: EditorContext }):
             if (entry) {
                 entry.count++;
             } else {
-                byCode.set(warning.code, { count: 1, first: warning.detail });
+                // `icon-unmapped` becomes `json_ef_warn_icon_unmapped`; every code has a sentence in
+                // the English dictionary, which is what a language without one falls back to
+                const key = `json_ef_warn_${warning.code.replace(/-/g, '_')}`;
+                byCode.set(warning.code, { count: 1, first: context.t(key, ...warning.args) });
             }
         }
         return [...byCode.entries()];
-    }, [warnings]);
+    }, [warnings, context]);
 
     return (
         <Alert

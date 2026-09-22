@@ -13,6 +13,9 @@
  */
 import React from 'react';
 
+import { iconPlacement } from './defaults';
+import { fitFontSize } from './format';
+import { diagramStyle, type DiagramStyle } from './styles';
 import { withAlpha, type EnergyFlowTheme } from './theme';
 import { renderBuiltinIcon } from './icons';
 import type { EdgeRuntime, FlowRuntime, NodeRuntime } from './runtime';
@@ -33,10 +36,14 @@ const CSS = `
 }
 .ef-paused .ef-dots { animation-play-state: paused; }
 .ef-clickable { cursor: pointer; }
+.ef-blink { animation: ef-blink 1.2s ease-in-out infinite; }
+.ef-paused .ef-blink { animation-play-state: paused; }
+@keyframes ef-blink { 50% { opacity: 0.35; } }
 .ef-node-hit { fill: transparent; stroke: none; }
 @keyframes ef-flow { to { stroke-dashoffset: var(--ef-shift, -26px); } }
 @media (prefers-reduced-motion: reduce) {
     .ef-dots { animation-name: none; }
+    .ef-blink { animation-name: none; }
 }
 `;
 
@@ -88,21 +95,54 @@ function arrowPath(point: Point, direction: Point, size: number, reversed: boole
     return `M${r(left.x)} ${r(left.y)} L${r(tipX)} ${r(tipY)} L${r(right.x)} ${r(right.y)}`;
 }
 
+/** A filled arrowhead with its tip at `tip`, pointing along `dir` */
+function arrowHead(tip: Point, dir: Point, size: number): string {
+    const back = { x: tip.x - dir.x * size, y: tip.y - dir.y * size };
+    const half = size * 0.62;
+    const r = (value: number): number => Math.round(value * 100) / 100;
+    return `M${r(tip.x)} ${r(tip.y)} L${r(back.x - dir.y * half)} ${r(back.y + dir.x * half)} L${r(back.x + dir.y * half)} ${r(back.y - dir.x * half)} Z`;
+}
+
 function EdgeLayer({
     edges,
     animate,
     selected,
     animationGap,
     dotSize,
+    look,
+    glowId,
 }: {
     edges: EdgeRuntime[];
     animate: boolean;
     selected: Set<string>;
     animationGap: number;
     dotSize: number;
+    look: DiagramStyle;
+    glowId?: string;
 }): React.ReactElement {
     return (
         <g className="ef-edges">
+            {/* The glow of the active lines, as one blurred layer under them: one filter pass for all
+                lines, and nothing in it moves, so it is not recomputed while the dots run */}
+            {glowId ? (
+                <g
+                    filter={`url(#${glowId})`}
+                    style={{ pointerEvents: 'none' }}
+                >
+                    {edges.map(edge =>
+                        edge.visible && edge.active ? (
+                            <path
+                                key={edge.edge.id}
+                                d={edge.geometry.d}
+                                fill="none"
+                                stroke={edge.color}
+                                strokeWidth={edge.width + 2}
+                                strokeLinecap="round"
+                            />
+                        ) : null,
+                    )}
+                </g>
+            ) : null}
             {edges.map(edge => {
                 if (!edge.visible) {
                     return null;
@@ -134,7 +174,9 @@ function EdgeLayer({
                                 className="ef-dots"
                                 d={edge.geometry.d}
                                 fill="none"
-                                stroke={edge.color}
+                                // Light dots on the coloured line -- in a dark theme too, where
+                                // they are the bright pulses -- or dots in the line's colour
+                                stroke={look.dots === 'light' ? withAlpha('#FFFFFF', 0.9) : edge.color}
                                 strokeWidth={dotSize}
                                 strokeLinecap="round"
                                 // A dash of (almost) zero length plus a round cap is a dot. The gap
@@ -149,7 +191,28 @@ function EdgeLayer({
                                 }
                             />
                         ) : null}
-                        {!moving && edge.active ? (
+                        {look.arrowAtEnd && edge.active ? (
+                            // Where the energy arrives: the end the line runs to, or its start when the
+                            // flow runs backwards
+                            <path
+                                d={
+                                    edge.direction < 0
+                                        ? arrowHead(
+                                              edge.geometry.start,
+                                              { x: -edge.geometry.startDir.x, y: -edge.geometry.startDir.y },
+                                              Math.max(edge.width * 3.2, 10),
+                                          )
+                                        : arrowHead(
+                                              edge.geometry.end,
+                                              edge.geometry.endDir,
+                                              Math.max(edge.width * 3.2, 10),
+                                          )
+                                }
+                                fill={edge.color}
+                                stroke="none"
+                            />
+                        ) : null}
+                        {!look.arrowAtEnd && !moving && edge.active ? (
                             <path
                                 d={arrowPath(
                                     edge.geometry.mid,
@@ -178,10 +241,12 @@ function EdgeLabels({
     edges,
     theme,
     fontSize,
+    look,
 }: {
     edges: EdgeRuntime[];
     theme: EnergyFlowTheme;
     fontSize: number;
+    look: DiagramStyle;
 }): React.ReactElement {
     return (
         <g className="ef-edge-labels">
@@ -201,9 +266,9 @@ function EdgeLabels({
                         fill={edge.active ? theme.text : theme.textSecondary}
                         // The label sits on top of the line it belongs to; a halo in the background
                         // colour keeps it legible without a solid box behind it
-                        stroke={theme.mode === 'dark' ? '#000' : '#fff'}
+                        stroke={look.panel ? theme.background : theme.mode === 'dark' ? '#000' : '#fff'}
                         strokeWidth={fontSize * 0.28}
-                        strokeOpacity={0.55}
+                        strokeOpacity={look.panel ? 0.9 : 0.55}
                         paintOrder="stroke"
                         style={{ pointerEvents: 'none', userSelect: 'none' }}
                     >
@@ -215,95 +280,271 @@ function EdgeLabels({
     );
 }
 
-/** The body of a node: the shape, its tint and the charge level of a battery */
-function NodeShapeBody({ node, theme }: { node: NodeRuntime; theme: EnergyFlowTheme }): React.ReactElement {
-    const { rect, shape, color } = node;
-    const tint = withAlpha(color, theme.mode === 'dark' ? 0.16 : 0.09);
-    const outline = withAlpha(color, 0.45);
-    const radius = shape === 'rounded' ? 16 : shape === 'square' ? 8 : 0;
-
-    if (shape === 'circle') {
-        const cx = rect.x + rect.w / 2;
-        const cy = rect.y + rect.h / 2;
-        return (
-            <>
-                <ellipse
-                    cx={cx}
-                    cy={cy}
-                    rx={rect.w / 2}
-                    ry={rect.h / 2}
-                    fill={theme.surface}
-                />
-                <ellipse
-                    cx={cx}
-                    cy={cy}
-                    rx={rect.w / 2}
-                    ry={rect.h / 2}
-                    fill={tint}
-                    stroke={outline}
-                    strokeWidth={1.6}
-                />
-            </>
-        );
+/** The body of a node: the shape, its tint and its fill level -- the charge of a battery, or a value against its maximum */
+function NodeShapeBody({
+    node,
+    theme,
+    look,
+    shadowId,
+    glowId,
+}: {
+    node: NodeRuntime;
+    theme: EnergyFlowTheme;
+    look: DiagramStyle;
+    shadowId?: string;
+    glowId?: string;
+}): React.ReactElement {
+    // Unique per rendered node, not per node id: two widgets on one page both have a "battery", and
+    // a clip path found by id would clip the second one with the first one's outline
+    const clipId = `ef-clip-${React.useId().replace(/[^A-Za-z0-9_-]/g, '')}`;
+    const { rect, color } = node;
+    // A card style draws every body as a card, circles included
+    const shape = look.cards && node.shape !== 'none' ? 'card' : node.shape;
+    const chart = node.chart ? (
+        <>
+            <path
+                d={node.chart.area}
+                fill={withAlpha(color, theme.mode === 'dark' ? 0.22 : 0.14)}
+                stroke="none"
+            />
+            <path
+                d={node.chart.line}
+                fill="none"
+                stroke={withAlpha(color, 0.75)}
+                strokeWidth={1.4}
+                strokeLinejoin="round"
+            />
+        </>
+    ) : null;
+    // No body, no fill either: without a container there is nothing to fill -- a chart still has
+    // somewhere to go, under the value
+    if (shape === 'none') {
+        return chart ?? <></>;
     }
+    const tint = withAlpha(color, theme.mode === 'dark' ? look.tint.dark : look.tint.light);
+    const outline = withAlpha(color, look.outline);
+    const glow = glowId ? `url(#${glowId})` : undefined;
+    // A circle in a gauge style shows its level along the outline; everything else fills up
+    const level = node.level ?? 0;
+    const ring = look.levelRing && shape === 'circle' && node.level !== null;
+    const fill = !ring && level > 0;
+    const radius =
+        shape === 'card'
+            ? Math.min(look.cardRadius, rect.h / 2, rect.w / 2)
+            : shape === 'rounded'
+              ? 16
+              : shape === 'square'
+                ? 8
+                : 0;
 
-    const clipId = `ef-clip-${node.node.id}`;
+    /** The outline of the body, drawn several times: background, tint, clip for the fill, stroke */
+    const bodyShape = (props: React.SVGProps<SVGEllipseElement & SVGRectElement>): React.ReactElement =>
+        shape === 'circle' ? (
+            <ellipse
+                cx={rect.x + rect.w / 2}
+                cy={rect.y + rect.h / 2}
+                rx={rect.w / 2}
+                ry={rect.h / 2}
+                {...props}
+            />
+        ) : (
+            <rect
+                x={rect.x}
+                y={rect.y}
+                width={rect.w}
+                height={rect.h}
+                rx={radius}
+                {...props}
+            />
+        );
 
     return (
         <>
-            <rect
-                x={rect.x}
-                y={rect.y}
-                width={rect.w}
-                height={rect.h}
-                rx={radius}
-                fill={theme.surface}
-            />
-            {/* The base tint goes under the charge level, so the empty part of a battery looks like
-                the other nodes rather than like a hole */}
-            <rect
-                x={rect.x}
-                y={rect.y}
-                width={rect.w}
-                height={rect.h}
-                rx={radius}
-                fill={tint}
-            />
-            {/* The charge level is drawn inside the body, clipped to the rounded shape, so a battery
-                reads as a container that fills up rather than as a number with a bar next to it. The
-                step from the tint to the fill has to be big enough to read at tile size. */}
-            {node.soc !== null ? (
+            {bodyShape({ fill: theme.surface, filter: shadowId ? `url(#${shadowId})` : undefined })}
+            {/* The base tint goes under the fill, so the empty part looks like the other nodes rather
+                than like a hole */}
+            {bodyShape({ fill: tint })}
+            {/* The fill is drawn inside the body, clipped to its shape, so a battery reads as a
+                container that fills up rather than as a number with a bar next to it. The step from
+                the tint to the fill has to be big enough to read at tile size. */}
+            {fill || chart ? (
                 <>
-                    <clipPath id={clipId}>
-                        <rect
-                            x={rect.x}
-                            y={rect.y}
-                            width={rect.w}
-                            height={rect.h}
-                            rx={radius}
-                        />
-                    </clipPath>
+                    <clipPath id={clipId}>{bodyShape({})}</clipPath>
                     <g clipPath={`url(#${clipId})`}>
-                        <rect
-                            x={rect.x}
-                            y={rect.y + rect.h * (1 - node.soc / 100)}
-                            width={rect.w}
-                            height={rect.h * (node.soc / 100)}
-                            fill={withAlpha(color, theme.mode === 'dark' ? 0.4 : 0.26)}
-                        />
+                        {fill ? (
+                            <rect
+                                x={rect.x}
+                                y={rect.y + rect.h * (1 - level / 100)}
+                                width={rect.w}
+                                height={rect.h * (level / 100)}
+                                fill={withAlpha(color, theme.mode === 'dark' ? 0.4 : 0.26)}
+                            />
+                        ) : null}
+                        {chart}
                     </g>
                 </>
             ) : null}
-            <rect
-                x={rect.x}
-                y={rect.y}
-                width={rect.w}
-                height={rect.h}
-                rx={radius}
-                fill="none"
-                stroke={outline}
-                strokeWidth={1.6}
-            />
+            {ring ? (
+                <>
+                    {/* The track, then the part of it that is reached */}
+                    {bodyShape({ fill: 'none', stroke: withAlpha(color, 0.22), strokeWidth: look.outlineWidth + 2 })}
+                    {level >= 99.95 ? (
+                        bodyShape({ fill: 'none', stroke: color, strokeWidth: look.outlineWidth + 2, filter: glow })
+                    ) : level > 0 ? (
+                        <path
+                            d={ringArc(rect.x + rect.w / 2, rect.y + rect.h / 2, rect.w / 2, rect.h / 2, level)}
+                            fill="none"
+                            stroke={color}
+                            strokeWidth={look.outlineWidth + 2}
+                            strokeLinecap="round"
+                            filter={glow}
+                        />
+                    ) : null}
+                </>
+            ) : (
+                bodyShape({ fill: 'none', stroke: outline, strokeWidth: look.outlineWidth, filter: glow })
+            )}
+        </>
+    );
+}
+
+/**
+ * The arc of a ring gauge: from the top of an ellipse, clockwise, `level` percent of the way round.
+ *
+ * @param cx centre x
+ * @param cy centre y
+ * @param rx horizontal radius
+ * @param ry vertical radius
+ * @param level 0..100; a full ring is drawn as an ellipse by the caller, an arc cannot close itself
+ */
+function ringArc(cx: number, cy: number, rx: number, ry: number, level: number): string {
+    const angle = (level / 100) * 2 * Math.PI;
+    const x = cx + rx * Math.sin(angle);
+    const y = cy - ry * Math.cos(angle);
+    return `M ${cx} ${cy - ry} A ${rx} ${ry} 0 ${angle > Math.PI ? 1 : 0} 1 ${x} ${y}`;
+}
+
+/** One line of text in a card: the value, the label, the second line */
+interface CardLine {
+    text: string;
+    size: number;
+    weight: number;
+    color: string;
+}
+
+/**
+ * The content of a card: icon, and a block of lines -- value, label, second line -- beside it or
+ * under it. The label is part of the card here, not a caption below it.
+ */
+function CardContent({
+    node,
+    theme,
+    look,
+    lines,
+    glowId,
+}: {
+    node: NodeRuntime;
+    theme: EnergyFlowTheme;
+    look: DiagramStyle;
+    lines: CardLine[];
+    glowId?: string;
+}): React.ReactElement {
+    const { rect } = node;
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    const left = !!node.icon && iconPlacement(node.node) === 'left';
+    const chip = look.iconChip && node.node.kind === 'sink' && !!node.icon;
+
+    let iconSize: number;
+    let iconX: number;
+    let textX: number;
+    let room: number;
+    let anchor: 'start' | 'middle';
+    if (left) {
+        const pad = Math.max(rect.h * 0.16, 8);
+        iconSize = Math.min(rect.h * (chip ? 0.4 : 0.5), rect.w * 0.26);
+        const box = chip ? iconSize * 1.5 : iconSize;
+        iconX = rect.x + pad + box / 2;
+        textX = rect.x + pad + box + pad * 0.8;
+        room = rect.x + rect.w - pad * 0.8 - textX;
+        anchor = 'start';
+    } else {
+        iconSize = node.icon ? Math.min(rect.w, rect.h) * (chip ? 0.24 : 0.3) : 0;
+        iconX = cx;
+        textX = cx;
+        room = rect.w - 2 * Math.max(rect.w * 0.06, 6);
+        anchor = 'middle';
+    }
+    // A line too long for the card gets smaller rather than running over its edge
+    const fitted = lines.map(line => ({ ...line, size: fitFontSize(line.text, line.size, room, line.weight >= 600) }));
+    const heights = fitted.map(line => line.size * 1.25);
+    const block = heights.reduce((sum, height) => sum + height, 0);
+
+    let iconY: number;
+    let top: number;
+    if (left) {
+        iconY = cy;
+        top = cy - block / 2;
+    } else {
+        const box = chip ? iconSize * 1.5 : iconSize;
+        const gap = node.icon ? Math.max(rect.h * 0.05, 4) : 0;
+        const total = box + gap + block;
+        iconY = cy - total / 2 + box / 2;
+        top = cy - total / 2 + box + gap;
+    }
+
+    // Each line's centre, stacked from the top of the block
+    const centres = heights.map(
+        (height, index) => top + heights.slice(0, index).reduce((sum, h) => sum + h, 0) + height / 2,
+    );
+    return (
+        <>
+            {chip ? (
+                <rect
+                    x={iconX - iconSize * 0.75}
+                    y={iconY - iconSize * 0.75}
+                    width={iconSize * 1.5}
+                    height={iconSize * 1.5}
+                    rx={iconSize * 0.34}
+                    fill={withAlpha(node.color, theme.mode === 'dark' ? 0.2 : 0.13)}
+                />
+            ) : null}
+            <g filter={glowId ? `url(#${glowId})` : undefined}>
+                {renderBuiltinIcon(node.icon, {
+                    x: iconX,
+                    y: iconY,
+                    size: iconSize,
+                    color: node.color,
+                    level: node.iconLevel,
+                }) ??
+                    (node.icon && !node.icon.startsWith('ef:') ? (
+                        <image
+                            x={iconX - iconSize / 2}
+                            y={iconY - iconSize / 2}
+                            width={iconSize}
+                            height={iconSize}
+                            href={node.icon}
+                            preserveAspectRatio="xMidYMid meet"
+                        />
+                    ) : null)}
+            </g>
+            {fitted.map((line, index) => {
+                return (
+                    <text
+                        key={index}
+                        x={textX}
+                        y={centres[index]}
+                        textAnchor={anchor}
+                        dominantBaseline="middle"
+                        fontSize={line.size}
+                        fontWeight={line.weight}
+                        fill={line.color}
+                        style={{ userSelect: 'none' }}
+                    >
+                        {line.text}
+                    </text>
+                );
+            })}
         </>
     );
 }
@@ -314,14 +555,20 @@ function NodeLayer({
     selected,
     onNodeClick,
     hideLabels,
-    labelFontSize,
+    look,
+    shadowId,
+    glowId,
+    iconGlowId,
 }: {
     nodes: NodeRuntime[];
     theme: EnergyFlowTheme;
     selected: Set<string>;
     onNodeClick?: (node: FlowNode, event: React.MouseEvent) => void;
     hideLabels?: boolean;
-    labelFontSize: number;
+    look: DiagramStyle;
+    shadowId?: string;
+    glowId?: string;
+    iconGlowId?: string;
 }): React.ReactElement {
     return (
         <g className="ef-nodes">
@@ -382,17 +629,46 @@ function NodeLayer({
                     );
                 }
 
-                const hasBadges = node.badges.length > 0 || node.soc !== null;
-                const iconSize = Math.min(rect.w, rect.h) * 0.34;
-                const iconY = cy - rect.h * 0.16;
-                // Without an icon there is no top half to leave free, so the value moves into the
+                const hasBadges = node.badges.length > 0 || node.soc !== null || node.timeText !== null;
+                // In a wide, low box the icon sits left of the value and the text is centred in the
+                // room that is left; otherwise it sits above
+                const left = !!node.icon && iconPlacement(node.node) === 'left';
+                const pad = left ? Math.max(rect.h * 0.18, 6) : 0;
+                const iconSize = left ? Math.min(rect.h * 0.56, rect.w * 0.3) : Math.min(rect.w, rect.h) * 0.34;
+                const iconX = left ? rect.x + pad + iconSize / 2 : cx;
+                const iconY = left ? cy : cy - rect.h * 0.16;
+                const textX = left ? (rect.x + pad + iconSize + rect.x + rect.w - pad / 2) / 2 : cx;
+                // Room for the value: beside the icon, or across the box -- a little less in a circle,
+                // which is narrower below its middle. A node without a shape has no edge to run over.
+                const room =
+                    node.shape === 'none'
+                        ? Infinity
+                        : left
+                          ? rect.w - pad * 1.5 - iconSize
+                          : rect.w * (node.shape === 'circle' ? 0.8 : 0.9);
+                // Without an icon above there is no top half to leave free, so the value moves into the
                 // middle -- a small box with nothing but a number would otherwise look bottom-heavy
-                const valueY = node.icon ? cy + rect.h * 0.15 : cy - (hasBadges ? node.fontSize * 0.4 : 0);
+                const valueY = node.icon && !left ? cy + rect.h * 0.15 : cy - (hasBadges ? node.fontSize * 0.4 : 0);
 
+                const classes = [clickable ? 'ef-clickable' : '', node.blink ? 'ef-blink' : '']
+                    .filter(Boolean)
+                    .join(' ');
+                const secondLine = [
+                    node.soc !== null ? `${Math.round(node.soc)} %` : null,
+                    ...node.badges.map(badge => (badge.label ? `${badge.label} ${badge.text}` : badge.text)),
+                    node.timeText,
+                ]
+                    .filter(Boolean)
+                    .join('  ·  ');
+                const cardRadius = look.cards && node.shape !== 'none';
+                const valueSize = fitFontSize(node.valueText.text, node.fontSize, room, true);
+                const secondSize = fitFontSize(secondLine, node.fontSize * 0.64, room, false);
                 return (
                     <g
                         key={node.node.id}
-                        className={clickable ? 'ef-clickable' : undefined}
+                        className={classes || undefined}
+                        // A stale value is dimmed as a whole: the reader should not trust any of it
+                        opacity={node.stale ? 0.4 : undefined}
                         onClick={clickable && onNodeClick ? event => onNodeClick(node.node, event) : undefined}
                     >
                         {node.node.label ? <title>{node.node.label}</title> : null}
@@ -403,72 +679,116 @@ function NodeLayer({
                                 y={rect.y - 6}
                                 width={rect.w + 12}
                                 height={rect.h + 12}
-                                rx={node.shape === 'circle' ? (rect.w + 12) / 2 : 20}
+                                rx={node.shape === 'circle' && !cardRadius ? (rect.w + 12) / 2 : look.cardRadius + 4}
                                 fill="none"
                                 stroke={node.color}
                                 strokeWidth={2}
                                 strokeDasharray="6 4"
+                                className="ef-selection"
                             />
                         ) : null}
 
                         <NodeShapeBody
                             node={node}
                             theme={theme}
+                            look={look}
+                            shadowId={shadowId}
+                            glowId={glowId}
                         />
 
-                        {renderBuiltinIcon(node.icon, { x: cx, y: iconY, size: iconSize, color: node.color }) ??
-                            (node.icon && !node.icon.startsWith('ef:') ? (
-                                <image
-                                    x={cx - iconSize / 2}
-                                    y={iconY - iconSize / 2}
-                                    width={iconSize}
-                                    height={iconSize}
-                                    href={node.icon}
-                                    preserveAspectRatio="xMidYMid meet"
-                                />
-                            ) : null)}
+                        {look.labelInside ? (
+                            <CardContent
+                                node={node}
+                                theme={theme}
+                                look={look}
+                                glowId={iconGlowId}
+                                lines={[
+                                    {
+                                        text: node.valueText.text,
+                                        size: node.fontSize,
+                                        weight: 700,
+                                        color: theme.text,
+                                    },
+                                    ...(node.node.label && !hideLabels
+                                        ? [
+                                              {
+                                                  text: node.node.label,
+                                                  size: Math.min(node.labelFontSize, node.fontSize * 0.8),
+                                                  weight: 400,
+                                                  color: theme.textSecondary,
+                                              },
+                                          ]
+                                        : []),
+                                    ...(secondLine
+                                        ? [
+                                              {
+                                                  text: secondLine,
+                                                  size: node.fontSize * 0.6,
+                                                  weight: 400,
+                                                  color: theme.textSecondary,
+                                              },
+                                          ]
+                                        : []),
+                                ]}
+                            />
+                        ) : null}
 
-                        <text
-                            x={cx}
-                            y={valueY}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            fontSize={node.fontSize}
-                            fontWeight={700}
-                            fill={theme.text}
-                            style={{ userSelect: 'none' }}
-                        >
-                            {node.valueText.text}
-                        </text>
+                        {look.labelInside
+                            ? null
+                            : (renderBuiltinIcon(node.icon, {
+                                  x: iconX,
+                                  y: iconY,
+                                  size: iconSize,
+                                  color: node.color,
+                                  level: node.iconLevel,
+                              }) ??
+                              (node.icon && !node.icon.startsWith('ef:') ? (
+                                  <image
+                                      x={iconX - iconSize / 2}
+                                      y={iconY - iconSize / 2}
+                                      width={iconSize}
+                                      height={iconSize}
+                                      href={node.icon}
+                                      preserveAspectRatio="xMidYMid meet"
+                                  />
+                              ) : null))}
 
-                        {hasBadges ? (
+                        {look.labelInside ? null : (
                             <text
-                                x={cx}
+                                x={textX}
+                                y={valueY}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                fontSize={valueSize}
+                                fontWeight={700}
+                                fill={theme.text}
+                                style={{ userSelect: 'none' }}
+                            >
+                                {node.valueText.text}
+                            </text>
+                        )}
+
+                        {hasBadges && !look.labelInside ? (
+                            <text
+                                x={textX}
                                 y={valueY + node.fontSize * 0.95}
                                 textAnchor="middle"
                                 dominantBaseline="middle"
-                                fontSize={node.fontSize * 0.64}
+                                fontSize={secondSize}
                                 fill={theme.textSecondary}
                                 style={{ userSelect: 'none' }}
                             >
-                                {[
-                                    node.soc !== null ? `${Math.round(node.soc)} %` : null,
-                                    ...node.badges.map(badge =>
-                                        badge.label ? `${badge.label} ${badge.text}` : badge.text,
-                                    ),
-                                ]
-                                    .filter(Boolean)
-                                    .join('  ·  ')}
+                                {secondLine}
                             </text>
                         ) : null}
 
-                        {node.node.label && !hideLabels ? (
+                        {node.node.label && !hideLabels && !look.labelInside ? (
                             <text
                                 x={cx}
-                                y={rect.y + rect.h + labelFontSize + 3}
+                                y={rect.y + rect.h + node.labelFontSize + 3}
                                 textAnchor="middle"
                                 dominantBaseline="middle"
-                                fontSize={labelFontSize}
+                                fontSize={node.labelFontSize}
                                 fill={theme.textSecondary}
                                 style={{ userSelect: 'none' }}
                             >
@@ -485,7 +805,7 @@ function NodeLayer({
                                 y={rect.y}
                                 width={rect.w}
                                 height={rect.h}
-                                rx={node.shape === 'circle' ? rect.w / 2 : 16}
+                                rx={node.shape === 'circle' && !cardRadius ? rect.w / 2 : look.cardRadius}
                             />
                         ) : null}
                     </g>
@@ -508,6 +828,16 @@ export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
 
     const selectedNodes = React.useMemo(() => new Set(props.selectedNodes || []), [props.selectedNodes]);
     const selectedEdges = React.useMemo(() => new Set(props.selectedEdges || []), [props.selectedEdges]);
+    // The style of the diagram, on top of the host theme -- the runtime computed its colours with the
+    // same adjusted theme
+    const look = diagramStyle(runtime.config);
+    const drawTheme = React.useMemo(() => look.theme(theme), [look, theme]);
+    const filterId = React.useId().replace(/[^A-Za-z0-9_-]/g, '');
+    const shadowId = `ef-shadow-${filterId}`;
+    const glowId = `ef-glow-${filterId}`;
+    const lineGlowId = `ef-line-glow-${filterId}`;
+    const iconGlowId = `ef-icon-glow-${filterId}`;
+    const dark = drawTheme.mode === 'dark';
 
     return (
         <svg
@@ -515,9 +845,158 @@ export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
             className={`ef-root${animate ? '' : ' ef-paused'}${className ? ` ${className}` : ''}`}
             viewBox={`0 0 ${canvas.w} ${canvas.h}`}
             preserveAspectRatio="xMidYMid meet"
-            style={style}
+            // Merged, not replaced: the editor passes `touch-action` this way, and a host style must not
+            // silently switch dragging on a touch screen back to scrolling
+            style={{ ...svgProps?.style, ...style }}
         >
             <style>{CSS}</style>
+            {look.shadow === 'soft' ? (
+                <defs>
+                    <filter
+                        id={shadowId}
+                        x="-20%"
+                        y="-20%"
+                        width="140%"
+                        height="170%"
+                    >
+                        <feDropShadow
+                            dx={0}
+                            dy={3}
+                            stdDeviation={5}
+                            floodColor={dark ? '#000000' : '#1B2A4A'}
+                            floodOpacity={dark ? 0.45 : 0.1}
+                        />
+                    </filter>
+                </defs>
+            ) : look.shadow === 'neo' ? (
+                <defs>
+                    {/* One blur of the shape, offset twice: a highlight up-left and a shadow down-right */}
+                    <filter
+                        id={shadowId}
+                        x="-100%"
+                        y="-100%"
+                        width="300%"
+                        height="300%"
+                    >
+                        <feGaussianBlur
+                            in="SourceAlpha"
+                            stdDeviation={dark ? 6 : 8}
+                            result="blur"
+                        />
+                        <feOffset
+                            in="blur"
+                            dx={dark ? 5 : 8}
+                            dy={dark ? 5 : 8}
+                            result="down"
+                        />
+                        <feOffset
+                            in="blur"
+                            dx={dark ? -5 : -7}
+                            dy={dark ? -5 : -7}
+                            result="up"
+                        />
+                        <feFlood
+                            floodColor={dark ? '#000000' : '#9AA9BF'}
+                            floodOpacity={dark ? 0.45 : 0.8}
+                        />
+                        <feComposite
+                            in2="down"
+                            operator="in"
+                            result="dark"
+                        />
+                        <feFlood
+                            floodColor="#FFFFFF"
+                            floodOpacity={dark ? 0.06 : 1}
+                        />
+                        <feComposite
+                            in2="up"
+                            operator="in"
+                            result="light"
+                        />
+                        <feMerge>
+                            <feMergeNode in="light" />
+                            <feMergeNode in="dark" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+                </defs>
+            ) : null}
+            {look.glow ? (
+                <defs>
+                    {/* The halo of an outline or an icon: the shape blurred in its own colour, under it */}
+                    <filter
+                        id={glowId}
+                        x="-100%"
+                        y="-100%"
+                        width="300%"
+                        height="300%"
+                    >
+                        <feGaussianBlur
+                            in="SourceGraphic"
+                            stdDeviation={dark ? 3 : 2.5}
+                            result="blur"
+                        />
+                        <feComponentTransfer
+                            in="blur"
+                            result="halo"
+                        >
+                            <feFuncA
+                                type="linear"
+                                slope={dark ? 1.1 : 0.6}
+                            />
+                        </feComponentTransfer>
+                        <feMerge>
+                            <feMergeNode in="halo" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+                    {/* An icon's halo is narrower: a wide one fills in the details and leaves a blob */}
+                    <filter
+                        id={iconGlowId}
+                        x="-50%"
+                        y="-50%"
+                        width="200%"
+                        height="200%"
+                    >
+                        <feGaussianBlur
+                            in="SourceGraphic"
+                            stdDeviation={1.6}
+                            result="blur"
+                        />
+                        <feComponentTransfer
+                            in="blur"
+                            result="halo"
+                        >
+                            <feFuncA
+                                type="linear"
+                                slope={dark ? 0.7 : 0.4}
+                            />
+                        </feComponentTransfer>
+                        <feMerge>
+                            <feMergeNode in="halo" />
+                            <feMergeNode in="SourceGraphic" />
+                        </feMerge>
+                    </filter>
+                    {/* The lines' halo, over the whole canvas: a straight line has no height, and a
+                        region relative to its box would have none either */}
+                    <filter
+                        id={lineGlowId}
+                        filterUnits="userSpaceOnUse"
+                        x={-50}
+                        y={-50}
+                        width={canvas.w + 100}
+                        height={canvas.h + 100}
+                    >
+                        <feGaussianBlur stdDeviation={dark ? 5 : 4} />
+                        <feComponentTransfer>
+                            <feFuncA
+                                type="linear"
+                                slope={dark ? 1 : 0.5}
+                            />
+                        </feComponentTransfer>
+                    </filter>
+                </defs>
+            ) : null}
             {canvas.background ? (
                 <rect
                     x={0}
@@ -526,31 +1005,47 @@ export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
                     height={canvas.h}
                     fill={canvas.background}
                 />
+            ) : look.panel ? (
+                <rect
+                    x={0}
+                    y={0}
+                    width={canvas.w}
+                    height={canvas.h}
+                    rx={24}
+                    fill={drawTheme.background}
+                />
             ) : null}
-            {background}
+            {/* Marked, so an image export can leave the editor's grid and handles out */}
+            {background ? <g className="ef-background">{background}</g> : null}
             <EdgeLayer
                 edges={runtime.edges}
                 animate={animate}
                 selected={selectedEdges}
                 animationGap={runtime.animation.gap}
                 dotSize={runtime.animation.dotSize}
+                look={look}
+                glowId={look.glow ? lineGlowId : undefined}
             />
             <NodeLayer
                 nodes={runtime.nodes}
-                theme={theme}
+                theme={drawTheme}
                 selected={selectedNodes}
                 onNodeClick={onNodeClick}
                 hideLabels={hideLabels}
-                labelFontSize={runtime.labelFontSize}
+                look={look}
+                shadowId={look.shadow !== 'none' ? shadowId : undefined}
+                glowId={look.glow ? glowId : undefined}
+                iconGlowId={look.glow ? iconGlowId : undefined}
             />
             {hideLabels ? null : (
                 <EdgeLabels
                     edges={runtime.edges}
-                    theme={theme}
+                    theme={drawTheme}
                     fontSize={runtime.labelFontSize}
+                    look={look}
                 />
             )}
-            {overlay}
+            {overlay ? <g className="ef-overlay">{overlay}</g> : null}
         </svg>
     );
 }

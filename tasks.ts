@@ -17,17 +17,26 @@
  * it *must*, because `packages/core` and `packages/editor` are compiled into both bundles and would
  * otherwise see a different React than the bundle around them.
  */
-import { buildReact, copyFiles, deleteFoldersRecursive } from '@iobroker/build-tools';
-import { existsSync, rmSync } from 'node:fs';
+import { buildReact, copyFiles, deleteFoldersRecursive, patchHtmlFile } from '@iobroker/build-tools';
+import { copyFileSync, existsSync, rmSync } from 'node:fs';
 
 const VIS_SRC = 'src-widgets/';
 const DM_SRC = 'src-dm-widgets/';
+const ADMIN_SRC = 'src-admin/';
 
 /** Where vis-2 expects the widget set; must match `common.visWidgets.*.url` */
 const VIS_DEST = 'widgets/energyflow/';
 
 /** Where ioBroker.devices expects the plugin; must match `common.deviceWidgets.url` */
 const DM_DEST = 'admin/dm-widgets/';
+
+/**
+ * The admin tab. Admin loads `adapter/energyflow/tab.html` for an `adminTab` without a `link`, and
+ * the chunks go into a folder of their own (`assetsDir` in `src-admin/vite.config.ts`) so that this
+ * build and the device manager's one can each wipe their output without touching the other's.
+ */
+const TAB_HTML = 'admin/tab.html';
+const TAB_ASSETS = 'admin/tab-assets/';
 
 /**
  * Remove one bundle's build and its published copy.
@@ -41,9 +50,15 @@ function cleanBundle(src: string, dest: string): void {
     deleteFoldersRecursive(`${__dirname}/${dest}`);
 }
 
+function cleanAdmin(): void {
+    cleanBundle(ADMIN_SRC, TAB_ASSETS);
+    rmSync(`${__dirname}/${TAB_HTML}`, { force: true });
+}
+
 function clean(): void {
     cleanBundle(VIS_SRC, VIS_DEST);
     cleanBundle(DM_SRC, DM_DEST);
+    cleanAdmin();
     deleteFoldersRecursive(`${__dirname}/widgets`);
 }
 
@@ -94,6 +109,18 @@ function copyDm(): void {
     copyFiles(['admin/energyflow.svg'], DM_DEST);
 }
 
+/**
+ * Put the tab where admin looks for it.
+ *
+ * `patchHtmlFile` swaps the dev-time socket loader for a static `<script>` tag; `'../..'` is the
+ * path from `adapter/energyflow/tab.html` back to the web root, where admin serves `lib/js/socket.io.js`.
+ */
+async function copyAdmin(): Promise<void> {
+    copyFiles([`${ADMIN_SRC}build/tab-assets/**/*`], TAB_ASSETS);
+    await patchHtmlFile(`${__dirname}/${ADMIN_SRC}build/index.html`, '../..');
+    copyFileSync(`${__dirname}/${ADMIN_SRC}build/index.html`, `${__dirname}/${TAB_HTML}`);
+}
+
 function fail(what: string, error: unknown): never {
     const message = error instanceof Error ? error.message : typeof error === 'string' ? error : JSON.stringify(error);
     console.error(`Cannot ${what}: ${message}`);
@@ -123,6 +150,12 @@ async function main(): Promise<void> {
         copyDm();
         return;
     }
+    if (argv.includes('--admin')) {
+        cleanAdmin();
+        await compile(ADMIN_SRC);
+        await copyAdmin();
+        return;
+    }
 
     clean();
     await previews();
@@ -130,9 +163,11 @@ async function main(): Promise<void> {
     copyVis();
     await compile(DM_SRC);
     copyDm();
+    await compile(ADMIN_SRC);
+    await copyAdmin();
 
     // A missing bundle would only show up when somebody installs the adapter, so check it here
-    for (const file of [`${VIS_DEST}customWidgets.js`, `${DM_DEST}customDevices.js`]) {
+    for (const file of [`${VIS_DEST}customWidgets.js`, `${DM_DEST}customDevices.js`, TAB_HTML]) {
         if (!existsSync(`${__dirname}/${file}`)) {
             fail('build', new Error(`${file} was not produced`));
         }
@@ -143,7 +178,7 @@ async function main(): Promise<void> {
         rmSync(`${__dirname}/${folder}`, { recursive: true, force: true });
     }
 
-    console.log(`Built ${VIS_DEST} and ${DM_DEST}`);
+    console.log(`Built ${VIS_DEST}, ${DM_DEST} and ${TAB_HTML}`);
 }
 
 main().catch((error: unknown) => fail('build', error));

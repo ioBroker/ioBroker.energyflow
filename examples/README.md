@@ -7,7 +7,10 @@ state ids. Every `"oid": ""` in these files is a blank waiting for one.
 
 ## `hybrid-12v.json` — 12 V off-grid / hybrid installation
 
-![hybrid-12v](../src-widgets/public/img/prev_hybrid-12v.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../src-widgets/public/img/prev_hybrid-12v-dark.svg">
+  <img alt="hybrid-12v" src="../src-widgets/public/img/prev_hybrid-12v.svg">
+</picture>
 
 A DC-coupled setup: four MPPT chargers feed a 12 V battery bank, a DC branch runs directly off the
 battery, an inverter makes 230 V for the household appliances, and the grid can both supply the AC

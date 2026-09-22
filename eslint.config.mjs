@@ -16,8 +16,14 @@ export default [
         },
     },
     {
-        // The shared sources and both host bundles are React
-        files: ['packages/*/src/**/*.{ts,tsx}', 'src-widgets/src/**/*.{ts,tsx}', 'src-dm-widgets/src/**/*.{ts,tsx}'],
+        // The shared sources, the host bundles and the dev preview are React
+        files: [
+            'packages/*/src/**/*.{ts,tsx}',
+            'src-widgets/src/**/*.{ts,tsx}',
+            'src-dm-widgets/src/**/*.{ts,tsx}',
+            'src-admin/src/**/*.{ts,tsx}',
+            'src-preview/src/**/*.{ts,tsx}',
+        ],
         ...react.configs.flat.recommended,
         plugins: {
             react,

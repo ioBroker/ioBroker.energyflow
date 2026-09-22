@@ -8,7 +8,7 @@
  * elements. Here the unit carries the information: a value in `W` is shown as `W`, `kW` or `MW`
  * depending on how large it currently is, and the decimal places follow.
  */
-import type { ValueFormat } from './types';
+import type { TimestampFormat, ValueFormat } from './types';
 
 /** Units that are scaled by powers of 1000 when `autoScale` is not explicitly turned off */
 const SCALABLE_BASES = ['Wh', 'Wp', 'VAh', 'VA', 'varh', 'var', 'W', 'J'];
@@ -52,6 +52,20 @@ function parseUnit(unit: string): ParsedUnit | null {
         }
     }
     return null;
+}
+
+/**
+ * The base of a unit and the factor that converts a value in it into that base: `kW` is `W` times
+ * 1000. A unit without SI multiples -- `%`, `A`, `degC` -- is its own base.
+ *
+ * @param unit the unit
+ * @returns base and factor; an empty base when there is no unit
+ */
+export function unitScale(unit: string | undefined): { base: string; factor: number } {
+    if (!unit) {
+        return { base: '', factor: 1 };
+    }
+    return parseUnit(unit) ?? { base: unit, factor: 1 };
 }
 
 /**
@@ -206,10 +220,115 @@ export function formatValue(value: number | null, options: FormatOptions = {}): 
  * @param defaults the document defaults
  * @returns the effective format
  */
-export function mergeFormat(own: ValueFormat | undefined, defaults: ValueFormat | undefined): ValueFormat {
+export function mergeFormat(
+    own: ValueFormat | undefined,
+    defaults: ValueFormat | undefined,
+    sourceUnit?: string,
+): ValueFormat {
     return {
-        unit: own?.unit ?? defaults?.unit,
+        // The element's own unit, else what the state object says, else the diagram's default. `||` on
+        // purpose: an empty unit is an unset one, see `ValueFormat.unit`
+        unit: own?.unit || sourceUnit || defaults?.unit,
         decimals: own?.decimals ?? defaults?.decimals,
         autoScale: own?.autoScale ?? defaults?.autoScale,
     };
+}
+
+/** Seconds per unit, largest first, for the relative form */
+const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+    ['second', 1],
+];
+
+/**
+ * Write a point in time.
+ *
+ * The words come from the browser (`Intl`), not from the dictionary: "vor 12 Minuten", "12 minutes
+ * ago" and every other language are built in, with their plural rules, and a date follows the locale's
+ * own order.
+ *
+ * @param time ms since the epoch
+ * @param format relative ("12 minutes ago"), a clock time, or date and time
+ * @param now the present, for the relative form
+ * @param locale BCP-47 tag; undefined uses the browser's
+ * @returns the text
+ */
+export function formatTimestamp(
+    time: number,
+    format: TimestampFormat = 'relative',
+    now = Date.now(),
+    locale?: string,
+): string {
+    const date = new Date(time);
+    if (format === 'time') {
+        return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+    }
+    if (format === 'datetime' || typeof Intl.RelativeTimeFormat !== 'function') {
+        return date.toLocaleString(locale, { dateStyle: 'short', timeStyle: 'short' });
+    }
+    // A clock a few seconds ahead of the server would say "in 3 seconds" -- it is "now"
+    const seconds = Math.min(Math.round((time - now) / 1000), 0);
+    const [unit, size] = RELATIVE_UNITS.find(([, length]) => Math.abs(seconds) >= length) ?? ['second', 1];
+    return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(Math.round(seconds / size), unit);
+}
+
+/**
+ * Advance width of a character, in font sizes, measured on bold system-ui; the other system fonts are
+ * within a few percent. Enough to tell whether a value fits its box, which is all it is used for.
+ *
+ * @param ch one character
+ */
+function charWidth(ch: string): number {
+    if (ch >= '0' && ch <= '9') {
+        return 0.58;
+    }
+    if (".,:;|!'".includes(ch)) {
+        return 0.27;
+    }
+    if ('ijlftr '.includes(ch)) {
+        return 0.33;
+    }
+    if ('-()'.includes(ch)) {
+        return 0.4;
+    }
+    if ('mwMW%'.includes(ch)) {
+        return 0.95;
+    }
+    if ((ch >= 'A' && ch <= 'Z') || ch.charCodeAt(0) >= 0x2e80) {
+        // Capitals, and the ideographs of the Chinese dictionary, which are a full square
+        return ch >= 'A' && ch <= 'Z' ? 0.7 : 1;
+    }
+    return 0.58;
+}
+
+/**
+ * The rough width of a text, in canvas units. The renderer also runs in node -- the previews, the
+ * gallery -- where there is nothing to measure with, so this estimates rather than measures.
+ *
+ * @param text the text
+ * @param size its font size
+ * @param bold whether it is drawn bold
+ */
+export function textWidth(text: string, size: number, bold: boolean): number {
+    let units = 0;
+    for (const ch of text) {
+        units += charWidth(ch);
+    }
+    return units * size * (bold ? 1 : 0.93);
+}
+
+/**
+ * The font size at which a text fits into `room`: the given size when it already does, else smaller,
+ * but never below half of it -- past that a value is unreadable anyway, and overflowing says more.
+ *
+ * @param text the text
+ * @param size the font size it would have
+ * @param room the width available, in canvas units
+ * @param bold whether it is drawn bold, which makes it a little wider
+ */
+export function fitFontSize(text: string, size: number, room: number, bold: boolean): number {
+    const width = textWidth(text, size, bold);
+    return width <= room ? size : Math.max((size * room) / width, size * 0.5);
 }

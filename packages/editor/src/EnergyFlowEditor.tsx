@@ -17,6 +17,9 @@ import {
     Dialog,
     Divider,
     IconButton,
+    Menu,
+    MenuItem,
+    Snackbar,
     Stack,
     Tooltip,
     Toolbar,
@@ -24,29 +27,28 @@ import {
     useTheme,
 } from '@mui/material';
 import {
-    Add,
-    BatteryFull,
-    Bolt,
     Check,
     Close,
     Code,
     CropFree,
     Dashboard,
     Grid4x4,
-    Home,
+    Image as ImageIcon,
     PlayArrow,
     Pause,
     Redo,
-    TextFields,
     Undo,
-    WbSunny,
+    ViewSidebar,
 } from '@mui/icons-material';
 
 import {
     collectOids,
     computeRuntime,
+    diagramFileName,
+    slugify,
     createNode,
     fitCanvas,
+    needsClock,
     normalizeConfig,
     themeFromMui,
     type EnergyFlowConfig,
@@ -57,7 +59,15 @@ import { Canvas } from './Canvas';
 import { Inspector } from './Inspector';
 import { PresetDialog } from './PresetDialog';
 import { JsonDialog } from './JsonDialog';
-import { useLiveValues } from './useLiveValues';
+import { useClock, useLiveStates } from './useLiveValues';
+import { useObjectUnits } from './useObjectUnits';
+import { useDefaultHistory, useEnergyToday, useHistory } from './useHistory';
+import { ResizeHandle } from './ResizeHandle';
+import { usePersistentState } from './usePersistentState';
+import { useEditorShortcuts } from './useEditorShortcuts';
+import { KIND_ICONS } from './optionIcons';
+import { DeviceWizard } from './DeviceWizard';
+import { exportPng, exportSvg } from './exportImage';
 import type { EditorContext, EditorSelection } from './types';
 
 export interface EnergyFlowEditorProps {
@@ -72,29 +82,49 @@ export interface EnergyFlowEditorProps {
     open: boolean;
     /** The stored configuration; a string containing JSON is accepted too */
     value: unknown;
+    /**
+     * Dialog: called on cancel and after a save, to close it.
+     * Inline: called on "discard" -- the host reloads the stored diagram, typically by remounting.
+     */
     onClose: () => void;
-    /** Called on OK with the edited document */
+    /** Called with the edited document on OK (dialog) or on save (inline) */
     onSave: (config: EnergyFlowConfig) => void;
     context: EditorContext;
     /** Shown in the title bar, e.g. the widget name */
     title?: string;
+    /**
+     * `dialog` -- a full-screen dialog over whatever opened it; what a widget attribute uses.
+     * `inline` -- fills its parent and stays open after saving; what the admin tab uses, where the
+     * designer *is* the page rather than something opened from it.
+     */
+    variant?: 'dialog' | 'inline';
+    /** Told whenever the document starts or stops differing from what was last saved */
+    onDirtyChange?: (dirty: boolean) => void;
+    /** Extra elements for the toolbar, left of the save button -- the admin tab puts its menu here */
+    toolbarExtra?: React.ReactNode;
+    /** Elements at the very start of the toolbar -- the admin tab puts its list toggle here */
+    toolbarStart?: React.ReactNode;
 }
+
+/** Limits of the properties panel, in pixels */
+const INSPECTOR_DEFAULT = 350;
+const INSPECTOR_MIN = 260;
+const INSPECTOR_MAX = 720;
 
 /** How many documents the undo stack keeps */
 const HISTORY_LIMIT = 60;
 
+/** Edits with the same merge key closer together than this are one undo step: a held arrow key */
+const MERGE_WINDOW_MS = 1000;
+
 /** The palette on the left. `bus` is last because it is the one that needs explaining. */
-const PALETTE: { kind: NodeKind; icon: React.ReactElement; label: string }[] = [
-    { kind: 'source', icon: <WbSunny />, label: 'kind_source' },
-    { kind: 'sink', icon: <Home />, label: 'kind_sink' },
-    { kind: 'storage', icon: <BatteryFull />, label: 'kind_storage' },
-    { kind: 'grid', icon: <Bolt />, label: 'kind_grid' },
-    { kind: 'label', icon: <TextFields />, label: 'kind_label' },
-    { kind: 'bus', icon: <Add />, label: 'kind_bus' },
-];
+const PALETTE: { kind: NodeKind; icon: React.ReactElement; label: string }[] = (
+    ['source', 'sink', 'storage', 'grid', 'label', 'bus'] as const
+).map(kind => ({ kind, icon: KIND_ICONS[kind], label: `kind_${kind}` }));
 
 export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Element {
-    const { open, value, onClose, onSave, context, title } = props;
+    const { open, value, onClose, onSave, context, title, onDirtyChange, toolbarExtra, toolbarStart } = props;
+    const inline = props.variant === 'inline';
     const muiTheme = useTheme();
 
     /**
@@ -111,27 +141,77 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
     const [selection, setSelection] = React.useState<EditorSelection>({ kind: 'canvas' });
     const [showGrid, setShowGrid] = React.useState(true);
     const [animate, setAnimate] = React.useState(true);
+    /**
+     * Width and visibility of the properties panel. Remembered per browser, and shared by the dialog in
+     * vis-2 and the admin tab -- whoever likes it wide likes it wide everywhere.
+     */
+    const [inspector, setInspector] = usePersistentState('energyflow.editor.inspector', {
+        width: INSPECTOR_DEFAULT,
+        open: true,
+    });
     // An empty diagram has nothing to inspect, so the useful first step is offering the templates
     const [jsonOpen, setJsonOpen] = React.useState(false);
+    const [wizardOpen, setWizardOpen] = React.useState(false);
+    const [exportAnchor, setExportAnchor] = React.useState<HTMLElement | null>(null);
+    const [exportError, setExportError] = React.useState<string | null>(null);
     const [presetsOpen, setPresetsOpen] = React.useState(() => !normalizeConfig(value).nodes.length);
 
     const config = draft ?? past.history[past.index];
+
+    /**
+     * The document as it was last saved. Dirty is an identity comparison, and that is enough: every
+     * edit produces a new object, and undoing back to the saved state returns *that* object from the
+     * history -- so "changed, then changed back" correctly reads as clean.
+     */
+    const [baseline, setBaseline] = React.useState<EnergyFlowConfig>(() => past.history[0]);
+    const dirty = config !== baseline;
+
+    React.useEffect(() => {
+        onDirtyChange?.(dirty);
+    }, [dirty, onDirtyChange]);
 
     const flowTheme = React.useMemo(
         () => themeFromMui(muiTheme, context.lang === 'en' ? 'en-US' : context.lang),
         [muiTheme, context.lang],
     );
 
-    const oids = React.useMemo(() => collectOids(config), [config]);
-    const values = useLiveValues(context.socket, oids);
+    /** Everything the designer draws; keyboard shortcuts apply while the focus is in here */
+    const rootRef = React.useRef<HTMLDivElement | null>(null);
 
-    const commit = React.useCallback((next: EnergyFlowConfig, transient?: boolean): void => {
+    const oids = React.useMemo(() => collectOids(config), [config]);
+    const { values, times, raw } = useLiveStates(context.socket, oids);
+    const now = useClock(needsClock(config));
+    const units = useObjectUnits(context.socket, oids);
+    const historyInstance = useDefaultHistory(context.socket);
+    const history = useHistory(context.socket, config, historyInstance);
+    const energy = useEnergyToday(context.socket, config, historyInstance);
+
+    /** The last edit that asked to be merged, see `commit` */
+    const lastMerge = React.useRef<{ key: string; at: number } | null>(null);
+
+    /**
+     * Put an edit on the undo stack.
+     *
+     * @param next the new document
+     * @param transient a gesture is still running -- keep it in the draft, off the stack
+     * @param merge edits with the same key in quick succession replace each other on the stack, so
+     *   holding an arrow key for a second is one undo step and not sixty
+     */
+    const commit = React.useCallback((next: EnergyFlowConfig, transient?: boolean, merge?: string): void => {
         if (transient) {
             setDraft(next);
             return;
         }
+        const now = Date.now();
+        const merging = !!merge && lastMerge.current?.key === merge && now - lastMerge.current.at < MERGE_WINDOW_MS;
+        lastMerge.current = merge ? { key: merge, at: now } : null;
         setDraft(null);
         setPast(previous => {
+            if (merging && previous.index > 0) {
+                const history = previous.history.slice(0, previous.index + 1);
+                history[history.length - 1] = next;
+                return { history, index: history.length - 1 };
+            }
             // Anything that was undone is dropped, which is what every editor does
             const trimmed = previous.history.slice(0, previous.index + 1);
             trimmed.push(next);
@@ -141,10 +221,21 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
         });
     }, []);
 
+    useEditorShortcuts({
+        root: rootRef,
+        config,
+        selection,
+        commit,
+        select: setSelection,
+        disabled: draft !== null,
+    });
+
     const canUndo = past.index > 0 || draft !== null;
     const canRedo = past.index < past.history.length - 1;
 
     const undo = (): void => {
+        // After an undo the top of the stack is no longer the step a merge would extend
+        lastMerge.current = null;
         // A gesture in progress is undone by dropping the draft, which restores the position the drag
         // started from without spending a history step
         if (draft) {
@@ -155,6 +246,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
     };
 
     const redo = (): void => {
+        lastMerge.current = null;
         setDraft(null);
         setPast(previous =>
             previous.index < previous.history.length - 1 ? { ...previous, index: previous.index + 1 } : previous,
@@ -172,11 +264,29 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
 
     const runtimeForTitle = React.useMemo(() => computeRuntime(config, () => null, flowTheme), [config, flowTheme]);
 
-    return (
-        <Dialog
-            open={open}
-            fullScreen
-            onClose={onClose}
+    const save = (): void => {
+        // What was saved must stay on the stack as its own step, not be merged into the next one
+        lastMerge.current = null;
+        onSave(config);
+        if (inline) {
+            // The page stays open, so what was just saved becomes the new "clean"
+            setBaseline(config);
+        } else {
+            onClose();
+        }
+    };
+
+    const body = (
+        <Box
+            ref={rootRef}
+            sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                flex: 1,
+                minHeight: 0,
+                // Inline it fills the host's box; in the dialog it is a flex child of the paper
+                height: inline ? '100%' : undefined,
+            }}
         >
             <AppBar
                 position="static"
@@ -187,6 +297,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                     variant="dense"
                     sx={{ gap: 0.5 }}
                 >
+                    {toolbarStart}
                     <Dashboard sx={{ mr: 1 }} />
                     <Typography
                         variant="subtitle1"
@@ -265,6 +376,43 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                             <Code />
                         </IconButton>
                     </Tooltip>
+                    <Tooltip title={context.t('editor_export_image')}>
+                        <IconButton
+                            size="small"
+                            onClick={event => setExportAnchor(event.currentTarget)}
+                        >
+                            <ImageIcon />
+                        </IconButton>
+                    </Tooltip>
+                    <Menu
+                        anchorEl={exportAnchor}
+                        open={!!exportAnchor}
+                        onClose={() => setExportAnchor(null)}
+                    >
+                        {(['svg', 'png'] as const).map(format => (
+                            <MenuItem
+                                key={format}
+                                onClick={() => {
+                                    setExportAnchor(null);
+                                    const svg = rootRef.current?.querySelector<SVGSVGElement>('svg.ef-root');
+                                    if (!svg) {
+                                        return;
+                                    }
+                                    const name = slugify(title || 'energyflow');
+                                    const background = config.canvas.background || flowTheme.background;
+                                    if (format === 'svg') {
+                                        exportSvg(svg, name, background);
+                                    } else {
+                                        exportPng(svg, name, background).catch((error: unknown) =>
+                                            setExportError(String(error)),
+                                        );
+                                    }
+                                }}
+                            >
+                                {context.t(`editor_export_${format}`)}
+                            </MenuItem>
+                        ))}
+                    </Menu>
 
                     <Box sx={{ flex: 1 }} />
 
@@ -276,22 +424,35 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                         {context.t('insp_counts', runtimeForTitle.nodes.length, runtimeForTitle.edges.length)}
                     </Typography>
 
+                    <Tooltip title={context.t(inspector.open ? 'editor_inspector_hide' : 'editor_inspector_show')}>
+                        <IconButton
+                            size="small"
+                            color={inspector.open ? 'primary' : 'default'}
+                            onClick={() => setInspector(previous => ({ ...previous, open: !previous.open }))}
+                            sx={{ mr: 1 }}
+                        >
+                            <ViewSidebar />
+                        </IconButton>
+                    </Tooltip>
+
+                    {toolbarExtra}
+
                     <Button
                         startIcon={<Close />}
                         onClick={onClose}
                         color="inherit"
+                        // Inline there is nothing to close, only edits to throw away
+                        disabled={inline && !dirty}
                     >
-                        {context.t('cancel')}
+                        {context.t(inline ? 'editor_discard' : 'cancel')}
                     </Button>
                     <Button
                         startIcon={<Check />}
                         variant="contained"
-                        onClick={() => {
-                            onSave(config);
-                            onClose();
-                        }}
+                        disabled={inline && !dirty}
+                        onClick={save}
                     >
-                        {context.t('apply')}
+                        {context.t(inline ? 'editor_save' : 'apply')}
                     </Button>
                 </Toolbar>
             </AppBar>
@@ -338,6 +499,12 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                         config={config}
                         theme={flowTheme}
                         values={values}
+                        units={units}
+                        times={times}
+                        now={now}
+                        history={history}
+                        raw={raw}
+                        energy={energy}
                         selection={selection}
                         onSelect={setSelection}
                         onChange={commit}
@@ -346,30 +513,45 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                     />
                 </Box>
 
-                {/* Inspector */}
-                <Box
-                    sx={{
-                        width: 350,
-                        flexShrink: 0,
-                        borderLeft: theme => `1px solid ${theme.palette.divider}`,
-                        p: 2,
-                        overflowY: 'auto',
-                    }}
-                >
-                    <Inspector
-                        config={config}
-                        selection={selection}
-                        onChange={commit}
-                        onSelect={setSelection}
-                        context={context}
-                        defaultNodeColor={kind => flowTheme.kinds[kind]}
-                    />
-                </Box>
+                {/* Inspector -- the handle draws the dividing line, so the panel has no border of its own */}
+                {inspector.open ? (
+                    <>
+                        <ResizeHandle
+                            panel="right"
+                            width={inspector.width}
+                            min={INSPECTOR_MIN}
+                            max={INSPECTOR_MAX}
+                            defaultWidth={INSPECTOR_DEFAULT}
+                            tooltip={context.t('editor_resize_hint')}
+                            onChange={width => setInspector(previous => ({ ...previous, width }))}
+                        />
+                        <Box
+                            sx={{
+                                width: inspector.width,
+                                flexShrink: 0,
+                                p: 2,
+                                overflowY: 'auto',
+                            }}
+                        >
+                            <Inspector
+                                config={config}
+                                selection={selection}
+                                onChange={commit}
+                                onSelect={setSelection}
+                                context={context}
+                                units={units}
+                                historyInstance={historyInstance}
+                                defaultNodeColor={kind => flowTheme.kinds[kind]}
+                            />
+                        </Box>
+                    </>
+                ) : null}
             </Box>
 
             <JsonDialog
                 open={jsonOpen}
                 config={config}
+                fileName={title ? diagramFileName(slugify(title)) : undefined}
                 onClose={() => setJsonOpen(false)}
                 onApply={next => {
                     commit(next);
@@ -388,7 +570,43 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                 context={context}
                 theme={flowTheme}
                 hasContent={config.nodes.length > 0}
+                onWizard={() => {
+                    setPresetsOpen(false);
+                    setWizardOpen(true);
+                }}
             />
+
+            <DeviceWizard
+                open={wizardOpen}
+                onClose={() => setWizardOpen(false)}
+                onPick={picked => {
+                    commit(picked);
+                    setSelection({ kind: 'canvas' });
+                }}
+                context={context}
+            />
+
+            <Snackbar
+                open={!!exportError}
+                autoHideDuration={5000}
+                onClose={() => setExportError(null)}
+                message={exportError}
+            />
+        </Box>
+    );
+
+    if (inline) {
+        return body;
+    }
+
+    // The paper of a full-screen dialog is already a flex column, so the same body fits both
+    return (
+        <Dialog
+            open={open}
+            fullScreen
+            onClose={onClose}
+        >
+            {body}
         </Dialog>
     );
 }

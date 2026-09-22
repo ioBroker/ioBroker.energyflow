@@ -17,6 +17,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
     buildPreset,
     computeRuntime,
+    DIAGRAM_STYLE_IDS,
+    diagramStyle,
     createValueGetter,
     EnergyFlowView,
     DARK_THEME,
@@ -67,9 +69,15 @@ function bind(config: EnergyFlowConfig): { config: EnergyFlowConfig; values: Rec
     return { config: { ...config, nodes, edges }, values };
 }
 
+let cardCount = 0;
+
 function card(title: string, config: EnergyFlowConfig, values: Record<string, number>, theme: EnergyFlowTheme): string {
     const runtime = computeRuntime(config, createValueGetter(values), theme);
-    const svg = renderToStaticMarkup(React.createElement(EnergyFlowView, { runtime, theme, animate: true }));
+    // Every card is a render of its own, and React numbers the ids of each from zero: without a
+    // prefix all cards share the filter and clip ids of the first one, and draw its shadows
+    const svg = renderToStaticMarkup(React.createElement(EnergyFlowView, { runtime, theme, animate: true }), {
+        identifierPrefix: `card${cardCount++}-`,
+    });
     // The worked example is portrait and needs more room than a template
     const tall = config.canvas.h / config.canvas.w > 1 ? ' tall' : '';
     // The card background has to follow the theme the diagram was rendered for, not its position in
@@ -179,6 +187,41 @@ const importedBound = {
 };
 cards.push(card('imported from energiefluss-erweitert · light', importedBound, importValues, LIGHT_THEME));
 cards.push(card('imported from energiefluss-erweitert · dark', importedBound, importValues, DARK_THEME));
+
+/**
+ * Every style but the normal one, on a template and on the worked example, light and dark: a style has
+ * to hold up in both modes of the host, and on a real installation as well as on a tidy template.
+ */
+for (const style of DIAGRAM_STYLE_IDS.filter(id => id !== 'normal')) {
+    const styled = (config: EnergyFlowConfig): EnergyFlowConfig => ({
+        ...config,
+        defaults: { ...config.defaults, style },
+    });
+    const template = bind(buildPreset('pv-battery-home', key => LABELS[key] || key));
+    cards.push(card(`style ${style} · pv-battery-home · light`, styled(template.config), template.values, LIGHT_THEME));
+    cards.push(card(`style ${style} · pv-battery-home · dark`, styled(template.config), template.values, DARK_THEME));
+    cards.push(
+        card(`style ${style} · hybrid-12v · light`, styled(boundExample.config), boundExample.values, LIGHT_THEME),
+    );
+    cards.push(
+        card(`style ${style} · hybrid-12v · dark`, styled(boundExample.config), boundExample.values, DARK_THEME),
+    );
+    // A style that shows the level of a circle as a gauge: every node a circle, with levels to show
+    if (diagramStyle(styled(template.config)).levelRing) {
+        const gauges = styled({
+            ...template.config,
+            nodes: template.config.nodes.map(node => ({
+                ...node,
+                shape: 'circle' as const,
+                w: 110,
+                h: 110,
+                levelMax: node.kind === 'source' ? 8000 : node.kind === 'sink' ? 10000 : undefined,
+            })),
+        });
+        cards.push(card(`style ${style} · gauges · light`, gauges, template.values, LIGHT_THEME));
+        cards.push(card(`style ${style} · gauges · dark`, gauges, template.values, DARK_THEME));
+    }
+}
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>energyflow gallery</title>
 <style>

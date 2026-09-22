@@ -17,10 +17,44 @@ import {
     buildPreset,
     computeRuntime,
     createValueGetter,
+    DARK_THEME,
     EnergyFlowView,
     LIGHT_THEME,
     type EnergyFlowConfig,
+    type EnergyFlowTheme,
 } from '../packages/core/src/index';
+
+/**
+ * The fonts a page would give the diagram. An .svg shown as an image inherits nothing, and without a
+ * family of its own it falls back to a serif -- which is how the README once showed Times.
+ */
+const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+/**
+ * The renderer's markup made into a file that stands on its own: the namespace and XML declaration a
+ * standalone .svg wants, the font, and a background in the theme's colour. Without the background a
+ * light diagram lands on whatever is behind the image -- on GitHub in dark mode that means light boxes,
+ * grey labels and white halos on black.
+ *
+ * @param markup what `renderToStaticMarkup` produced
+ * @param theme the theme it was rendered with
+ */
+function standalone(markup: string, theme: EnergyFlowTheme): string {
+    const viewBox = /viewBox="([^"]+)"/.exec(markup)?.[1].split(' ').map(Number);
+    // The built-in themes leave the background to the page; a file has to bring the page along
+    const fill = theme.background !== 'transparent' ? theme.background : theme.mode === 'dark' ? '#181B20' : '#F8FAFC';
+    const background =
+        viewBox?.length === 4
+            ? `<rect x="${viewBox[0]}" y="${viewBox[1]}" width="${viewBox[2]}" height="${viewBox[3]}" rx="16" fill="${fill}"></rect>`
+            : '';
+    const svg = markup
+        .replace('<svg ', `<svg xmlns="http://www.w3.org/2000/svg" font-family="${FONT}" `)
+        // Behind everything, right after the stylesheet
+        .replace('</style>', `</style>${background}`);
+    return `<?xml version="1.0" encoding="UTF-8"?>
+${svg}
+`;
+}
 
 /** Where the vis-2 bundle keeps its static assets */
 const VIS_IMG = join(dirname(fileURLToPath(import.meta.url)), '..', 'src-widgets', 'public', 'img');
@@ -90,8 +124,7 @@ function render(presetId: Parameters<typeof buildPreset>[0], fileName: string): 
         React.createElement(EnergyFlowView, { runtime, theme: LIGHT_THEME, animate: false }),
     );
 
-    // renderToStaticMarkup emits the element without the XML declaration a standalone .svg wants
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>\n${markup.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')}\n`;
+    const svg = standalone(markup, LIGHT_THEME);
 
     mkdirSync(VIS_IMG, { recursive: true });
     writeFileSync(join(VIS_IMG, fileName), svg, 'utf8');
@@ -101,7 +134,8 @@ function render(presetId: Parameters<typeof buildPreset>[0], fileName: string): 
 render('pv-battery-home', 'prev_energyflow.svg');
 
 /**
- * The worked example, with the numbers of the installation it was built from, for `examples/README.md`.
+ * The worked example, with the numbers of the installation it was built from, for the README and
+ * `examples/README.md` -- once light and once dark, which GitHub picks from with `<picture>`.
  *
  * It goes through the same renderer as everything else, so the picture in the documentation cannot
  * drift away from what the file actually produces.
@@ -151,16 +185,17 @@ function renderExample(): void {
     });
 
     const bound = { ...config, nodes, edges };
-    const runtime = computeRuntime(bound, createValueGetter(values), LIGHT_THEME);
-    const markup = renderToStaticMarkup(
-        React.createElement(EnergyFlowView, { runtime, theme: LIGHT_THEME, animate: false }),
-    );
-    const svg = `<?xml version="1.0" encoding="UTF-8"?>
-${markup.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')}
-`;
     mkdirSync(VIS_IMG, { recursive: true });
-    writeFileSync(join(VIS_IMG, 'prev_hybrid-12v.svg'), svg, 'utf8');
-    console.log(`Wrote prev_hybrid-12v.svg (${Math.round(svg.length / 1024)} kB)`);
+    for (const [theme, fileName] of [
+        [LIGHT_THEME, 'prev_hybrid-12v.svg'],
+        [DARK_THEME, 'prev_hybrid-12v-dark.svg'],
+    ] as const) {
+        const runtime = computeRuntime(bound, createValueGetter(values), theme);
+        const markup = renderToStaticMarkup(React.createElement(EnergyFlowView, { runtime, theme, animate: false }));
+        const svg = standalone(markup, theme);
+        writeFileSync(join(VIS_IMG, fileName), svg, 'utf8');
+        console.log(`Wrote ${fileName} (${Math.round(svg.length / 1024)} kB)`);
+    }
 }
 
 renderExample();

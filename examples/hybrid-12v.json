@@ -193,7 +193,7 @@
             "showValue": true
         },
         { "id": "pv-battery", "from": "pv", "to": "battery", "value": { "oid": "" }, "mode": "positive", "curve": "orthogonal", "fromSide": "left", "toSide": "top", "showValue": true },
-        { "id": "pv-inverter", "from": "pv", "to": "inverter", "value": { "oid": "" }, "mode": "positive", "curve": "orthogonal", "fromSide": "bottom", "toSide": "top", "showValue": true },
+        { "id": "pv-inverter", "from": "pv", "to": "inverter", "value": { "oid": "" }, "mode": "positive", "curve": "orthogonal", "fromSide": "bottom", "toSide": "top", "bend": 0.3, "showValue": true },
 
         {
             "id": "battery-dc",
