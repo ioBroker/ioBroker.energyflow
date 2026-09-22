@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+        />
+        <!--
+            Loads the socket.io client of the admin before the app starts; this is the bootstrap every
+            ioBroker tab uses, except that the preview is never served by admin: the client always
+            comes from admin itself. Its address is filled in from ADMIN_URL in vite.config.ts.
+        -->
+        <script>
+            var script = document.createElement('script');
+            window.registerSocketOnLoad = function (cb) {
+                window.socketLoadedHandler = cb;
+            };
+            const parts = (window.location.search || '').replace(/^\?/, '').split('&');
+            const query = {};
+            parts.forEach(item => {
+                const [name, val] = item.split('=');
+                query[decodeURIComponent(name)] = val !== undefined ? decodeURIComponent(val) : true;
+            });
+            script.onload = function () {
+                typeof window.socketLoadedHandler === 'function' && window.socketLoadedHandler();
+            };
+            script.src = '%ADMIN_ORIGIN%/lib/js/socket.io.js';
+
+            document.head.appendChild(script);
+        </script>
+        <title>Energy flow preview</title>
+    </head>
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root"></div>
+        <script
+            type="module"
+            src="/src/index.tsx"
+        ></script>
+    </body>
+</html>

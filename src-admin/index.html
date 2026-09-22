@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+        />
+        <!--
+            Loads the socket.io client of the admin before the app starts; this is the bootstrap every
+            ioBroker tab uses. `patchHtmlFile` of @iobroker/build-tools replaces the whole script with a
+            static tag at build time, and it only recognises it if `var script` is the first statement:
+            keep comments out of the script body.
+        -->
+        <script>
+            var script = document.createElement('script');
+            window.registerSocketOnLoad = function (cb) {
+                window.socketLoadedHandler = cb;
+            };
+            const parts = (window.location.search || '').replace(/^\?/, '').split('&');
+            const query = {};
+            parts.forEach(item => {
+                const [name, val] = item.split('=');
+                query[decodeURIComponent(name)] = val !== undefined ? decodeURIComponent(val) : true;
+            });
+            script.onload = function () {
+                typeof window.socketLoadedHandler === 'function' && window.socketLoadedHandler();
+            };
+            script.src =
+                window.location.port === '3000'
+                    ? `${window.location.protocol}//${query.host || window.location.hostname}:${query.port || 8081}/lib/js/socket.io.js`
+                    : '../../lib/js/socket.io.js';
+
+            document.head.appendChild(script);
+        </script>
+        <title>Energy flow</title>
+    </head>
+    <body>
+        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <div id="root"></div>
+        <script
+            type="module"
+            src="/src/index.tsx"
+        ></script>
+    </body>
+</html>

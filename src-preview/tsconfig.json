@@ -1,0 +1,31 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "useDefineForClassFields": true,
+        "lib": ["DOM", "DOM.Iterable", "ESNext"],
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "strict": true,
+        "forceConsistentCasingInFileNames": true,
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noEmit": true,
+        "jsx": "react-jsx",
+        "types": ["@iobroker/types"],
+        "paths": {
+            "@energyflow/core": ["../packages/core/src/index.ts"],
+            "@energyflow/editor": ["../packages/editor/src/index.ts"],
+            "@energyflow/i18n": ["../packages/i18n/src/index.ts"]
+        }
+    },
+    "include": [
+        "src",
+        "../src-admin/src",
+        "../packages/core/src",
+        "../packages/editor/src",
+        "../packages/i18n/src"
+    ],
+    "references": [{ "path": "./tsconfig.node.json" }]
+}
