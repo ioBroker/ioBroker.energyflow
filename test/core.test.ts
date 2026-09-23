@@ -12,11 +12,26 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { compileExpr, evalExpr, ExprError, exprVariables } from '../packages/core/src/expr';
-import { fitFontSize, formatTimestamp, formatValue, scaleUnit } from '../packages/core/src/format';
+import {
+    amountUnit,
+    fitFontSize,
+    formatTimestamp,
+    formatValue,
+    integralSeconds,
+    scaleUnit,
+} from '../packages/core/src/format';
 import { collectOids, resolveSrc, toNumber, createValueGetter } from '../packages/core/src/values';
 import { computeRuntime } from '../packages/core/src/runtime';
+import { mediumOf } from '../packages/core/src/media';
 import { anchorOf, bendAt, edgeGeometry } from '../packages/core/src/geometry';
-import { iconPlacement, nodeLabelSize, normalizeConfig, nodeRect, pageLabelSize } from '../packages/core/src/defaults';
+import {
+    defaultIcon,
+    iconPlacement,
+    nodeLabelSize,
+    normalizeConfig,
+    nodeRect,
+    pageLabelSize,
+} from '../packages/core/src/defaults';
 import { CLIPBOARD_FORMAT, copyNodes, parseClipboard, pasteNodes } from '../packages/core/src/clipboard';
 import { cachedUnit, loadUnits, sourceUnit } from '../packages/core/src/units';
 import {
@@ -39,7 +54,7 @@ import {
     objectName,
 } from '../packages/core/src/assistant';
 import { BUILTIN_ICONS, renderBuiltinIcon } from '../packages/core/src/icons';
-import EnergyFlowView from '../packages/core/src/EnergyFlowView';
+import FlowView from '../packages/core/src/FlowView';
 import { importEnergiefluss, isEnergiefluss } from '../packages/core/src/importEnergiefluss';
 import { buildPreset } from '../packages/core/src/presets';
 import {
@@ -78,7 +93,7 @@ import {
     themeFromMui,
     withAlpha,
 } from '../packages/core/src/theme';
-import type { EnergyFlowConfig, FlowNode } from '../packages/core/src/types';
+import type { FlowConfig, FlowNode } from '../packages/core/src/types';
 
 describe('expr', () => {
     it('evaluates arithmetic with the usual precedence', () => {
@@ -238,7 +253,7 @@ describe('values', () => {
     });
 
     it('collects every state the document reads, once', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 100, h: 100 },
             nodes: [
@@ -345,7 +360,7 @@ describe('geometry', () => {
 describe('runtime', () => {
     const theme = LIGHT_THEME;
 
-    function twoNodes(edgeExtra: Partial<EnergyFlowConfig['edges'][0]> = {}): EnergyFlowConfig {
+    function twoNodes(edgeExtra: Partial<FlowConfig['edges'][0]> = {}): FlowConfig {
         return {
             v: 1,
             canvas: { w: 400, h: 200 },
@@ -462,7 +477,7 @@ describe('runtime', () => {
     it('shows the production of a producer that is itself fed by sub-producers', () => {
         // Four MPPT strings into one "production" box, which then feeds the house: the box must show
         // what it produces, not the net of in and out -- which is zero by conservation
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 600, h: 400 },
             defaults: { unit: 'W' },
@@ -520,7 +535,7 @@ describe('runtime', () => {
     });
 
     it('clamps the state of charge to 0..100', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 200, h: 200 },
             nodes: [{ id: 'b', kind: 'storage', x: 100, y: 100, soc: { oid: 'soc' } }],
@@ -682,7 +697,7 @@ describe('model', () => {
 
     it('moves the route of a connection along when both of its ends move', () => {
         const base = buildPreset('pv-battery-home', key => key);
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             ...base,
             edges: base.edges.map(edge =>
                 edge.id === 'pv-home' || edge.id === 'grid-home' ? { ...edge, waypoints: [{ x: 300, y: 200 }] } : edge,
@@ -697,7 +712,7 @@ describe('model', () => {
 
     it('resizes around the centre, one dimension at a time, never below the minimum', () => {
         const preset = buildPreset('pv-battery-home', key => key);
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             ...preset,
             nodes: preset.nodes.map(node => (node.id === 'home' ? { ...node, shape: 'rounded' as const } : node)),
         };
@@ -752,7 +767,7 @@ describe('examples', () => {
         const config = normalizeConfig(JSON.parse(raw));
 
         // Nothing was dropped by the normalisation: every node has an id, every edge two real ends
-        const parsed = JSON.parse(raw) as EnergyFlowConfig;
+        const parsed = JSON.parse(raw) as FlowConfig;
         assert.equal(config.nodes.length, parsed.nodes.length);
         assert.equal(config.edges.length, parsed.edges.length);
 
@@ -1140,30 +1155,27 @@ describe('stored diagrams', () => {
     });
 
     it('numbers an id that is taken instead of overwriting it', () => {
-        assert.equal(newDiagramId('PV', []), 'energyflow.0.diagrams.pv');
-        assert.equal(newDiagramId('PV', ['energyflow.0.diagrams.pv']), 'energyflow.0.diagrams.pv_2');
-        assert.equal(
-            newDiagramId('PV', ['energyflow.0.diagrams.pv', 'energyflow.0.diagrams.pv_2']),
-            'energyflow.0.diagrams.pv_3',
-        );
-        assert.equal(newDiagramId('PV', [], 1), 'energyflow.1.diagrams.pv');
+        assert.equal(newDiagramId('PV', []), 'flow.0.diagrams.pv');
+        assert.equal(newDiagramId('PV', ['flow.0.diagrams.pv']), 'flow.0.diagrams.pv_2');
+        assert.equal(newDiagramId('PV', ['flow.0.diagrams.pv', 'flow.0.diagrams.pv_2']), 'flow.0.diagrams.pv_3');
+        assert.equal(newDiagramId('PV', [], 1), 'flow.1.diagrams.pv');
     });
 
     it('only follows references into its own namespace', () => {
-        assert.equal(isDiagramId('energyflow.0.diagrams.pv'), true);
+        assert.equal(isDiagramId('flow.0.diagrams.pv'), true);
         // A reference must not be able to point at an arbitrary state and have it parsed as a diagram
         assert.equal(isDiagramId('javascript.0.secret'), false);
-        assert.equal(isDiagramId('energyflow.0.diagrams'), false);
-        assert.equal(isDiagramId('energyflow.0.diagrams.pv.extra'), false);
+        assert.equal(isDiagramId('flow.0.diagrams'), false);
+        assert.equal(isDiagramId('flow.0.diagrams.pv.extra'), false);
     });
 
     it('tells a reference from an inline diagram before normalising', () => {
-        assert.deepEqual(readDiagramAttribute({ $ref: 'energyflow.0.diagrams.pv' }), {
-            ref: 'energyflow.0.diagrams.pv',
+        assert.deepEqual(readDiagramAttribute({ $ref: 'flow.0.diagrams.pv' }), {
+            ref: 'flow.0.diagrams.pv',
         });
         // vis-2 may hand the attribute over as text
-        assert.deepEqual(readDiagramAttribute('{"$ref":"energyflow.0.diagrams.pv"}'), {
-            ref: 'energyflow.0.diagrams.pv',
+        assert.deepEqual(readDiagramAttribute('{"$ref":"flow.0.diagrams.pv"}'), {
+            ref: 'flow.0.diagrams.pv',
         });
 
         const inline = readDiagramAttribute(buildPreset('pv-home', key => key));
@@ -1191,8 +1203,8 @@ describe('stored diagrams', () => {
         assert.equal(parseStoredDiagram(''), null);
         assert.equal(parseStoredDiagram('not json'), null);
         // A stored diagram that points somewhere else would be a chain; it is refused, not followed
-        assert.equal(parseStoredDiagram('{"$ref":"energyflow.0.diagrams.other"}'), null);
-        assert.equal(parseStoredDiagram({ $ref: 'energyflow.0.diagrams.other' }), null);
+        assert.equal(parseStoredDiagram('{"$ref":"flow.0.diagrams.other"}'), null);
+        assert.equal(parseStoredDiagram({ $ref: 'flow.0.diagrams.other' }), null);
     });
 });
 
@@ -1247,7 +1259,7 @@ describe('clipboard', () => {
         const source = buildPreset('pv-battery-home', t);
         const clipboard = copyNodes(source, ['battery'])!;
         // An empty, smaller diagram: the battery at x 760 would land outside a 400 wide canvas
-        const target: EnergyFlowConfig = { v: 1, canvas: { w: 400, h: 300, grid: 10 }, nodes: [], edges: [] };
+        const target: FlowConfig = { v: 1, canvas: { w: 400, h: 300, grid: 10 }, nodes: [], edges: [] };
         const { config, ids } = pasteNodes(target, clipboard);
         assert.deepEqual(ids, ['battery']);
         const node = config.nodes[0];
@@ -1318,7 +1330,7 @@ describe('units from the state objects', () => {
 
     it('shows a state in its own unit and lets an explicit unit win', () => {
         const base = buildPreset('pv-home', key => key);
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             ...base,
             nodes: base.nodes.map(node => (node.id === 'pv' ? { ...node, value: { oid: 'pv' } } : node)),
         };
@@ -1341,7 +1353,7 @@ describe('units from the state objects', () => {
     it('treats an empty unit as unset, so the object still decides', () => {
         const base = buildPreset('pv-home', key => key);
         // What earlier imports of energiefluss-erweitert wrote for calculate_kw 'none'
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             ...base,
             nodes: base.nodes.map(node => (node.id === 'pv' ? { ...node, value: { oid: 'pv' }, unit: '' } : node)),
         };
@@ -1350,7 +1362,7 @@ describe('units from the state objects', () => {
     });
 
     it('compares, animates and sums edges in the base unit', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 600, h: 400 },
             nodes: [
@@ -1399,7 +1411,7 @@ describe('last change and last update', () => {
     });
 
     it('shows the most recent change of the states behind a value', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [
@@ -1460,7 +1472,7 @@ describe('fill levels', () => {
             null,
         );
 
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [
@@ -1483,7 +1495,7 @@ describe('fill levels', () => {
 
     it('fills any other node against its maximum, by amount', () => {
         const base = buildPreset('pv-battery-home', t);
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             ...base,
             nodes: base.nodes.map(node =>
                 node.id === 'pv'
@@ -1502,7 +1514,7 @@ describe('fill levels', () => {
     });
 
     it('fills against the maximum the state object declares', () => {
-        const config = (extra: Partial<FlowNode>): EnergyFlowConfig => ({
+        const config = (extra: Partial<FlowNode>): FlowConfig => ({
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [{ id: 'pv', kind: 'source', x: 100, y: 100, value: { oid: 'pv' }, ...extra }],
@@ -1527,7 +1539,7 @@ describe('fill levels', () => {
     });
 
     it('takes a value in percent as the level of the icon', () => {
-        const node = (extra: Partial<FlowNode>): EnergyFlowConfig => ({
+        const node = (extra: Partial<FlowNode>): FlowConfig => ({
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [{ id: 'bat', kind: 'storage', x: 100, y: 100, value: { oid: 'soc' }, ...extra }],
@@ -1563,6 +1575,24 @@ describe('fill levels', () => {
         assert.equal(fitFontSize('anything', 20, Infinity, true), 20);
     });
 
+    it('gives every icon a name in both dictionaries', () => {
+        const words = {
+            en: JSON.parse(readFileSync(new URL('../packages/i18n/src/en.json', import.meta.url), 'utf8')) as Record<
+                string,
+                string
+            >,
+            de: JSON.parse(readFileSync(new URL('../packages/i18n/src/de.json', import.meta.url), 'utf8')) as Record<
+                string,
+                string
+            >,
+        };
+        for (const [name, icon] of Object.entries(BUILTIN_ICONS)) {
+            for (const [lang, dictionary] of Object.entries(words)) {
+                assert.ok(dictionary[icon.label], `${lang}: no name for the icon "${name}" (${icon.label})`);
+            }
+        }
+    });
+
     it('draws the battery icon with its charge instead of the fixed bar', () => {
         const markup = (level?: number | null): string =>
             renderToStaticMarkup(
@@ -1586,7 +1616,7 @@ describe('history charts', () => {
     const now = Date.UTC(2026, 8, 22, 12, 0, 0);
 
     it('asks only for plain states, once per state and period', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [
@@ -1656,7 +1686,7 @@ describe('history charts', () => {
     });
 
     it('charts the value as the node shows it, through its rescaling', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [{ id: 'pv', kind: 'source', x: 100, y: 100, value: { oid: 'pv', invert: true }, history: '15m' }],
@@ -1682,7 +1712,7 @@ describe('history charts', () => {
 });
 
 describe('rules, status texts and stale values', () => {
-    const one = (extra: Partial<EnergyFlowConfig['nodes'][0]>): EnergyFlowConfig => ({
+    const one = (extra: Partial<FlowConfig['nodes'][0]>): FlowConfig => ({
         v: 1,
         canvas: { w: 300, h: 200 },
         nodes: [{ id: 'n', kind: 'storage', x: 100, y: 100, value: { oid: 'v' }, unit: '%', ...extra }],
@@ -1708,7 +1738,7 @@ describe('rules, status texts and stale values', () => {
     });
 
     it('recolours, swaps the icon and blinks by rule -- and the lines follow the colour', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             ...one({ rules: [{ op: '<', value: 20, color: '#ff0000', icon: 'plug', blink: true }] }),
             nodes: [
                 {
@@ -1751,7 +1781,7 @@ describe('rules, status texts and stale values', () => {
 
     it('dims a value that was not updated for too long', () => {
         const now = Date.UTC(2026, 8, 22, 12, 0, 0);
-        const config: EnergyFlowConfig = { ...one({}), defaults: { staleAfter: 10 } };
+        const config: FlowConfig = { ...one({}), defaults: { staleAfter: 10 } };
         const times = (ts: number) => () => ({ ts, lc: ts });
         assert.equal(
             computeRuntime(config, createValueGetter({ v: 50 }), LIGHT_THEME, { times: times(now - 11 * 60000), now })
@@ -1799,7 +1829,7 @@ describe('key figures and energy of today', () => {
     });
 
     it('counts each producer once, even when producers feed a producer', () => {
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 600, h: 400 },
             nodes: [
@@ -1831,12 +1861,13 @@ describe('key figures and energy of today', () => {
             asked.push(`${oid} ${options.aggregate} ${options.integralUnit}`);
             return Promise.resolve([{ ts: now, val: 3200 }]);
         };
-        assert.equal(await loadEnergyToday(['e.pv'], read, now), true);
-        assert.equal(await loadEnergyToday(['e.pv'], read, now + 1000), false);
+        const request = [{ oid: 'e.pv', seconds: 3600 }];
+        assert.equal(await loadEnergyToday(request, read, now), true);
+        assert.equal(await loadEnergyToday(request, read, now + 1000), false);
         assert.deepEqual(asked, ['e.pv integral 3600']);
         assert.equal(cachedEnergyToday('e.pv'), 3200);
 
-        const config: EnergyFlowConfig = {
+        const config: FlowConfig = {
             v: 1,
             canvas: { w: 300, h: 200 },
             nodes: [
@@ -1844,7 +1875,7 @@ describe('key figures and energy of today', () => {
             ],
             edges: [],
         };
-        assert.deepEqual(energyRequests(config), ['e.pv']);
+        assert.deepEqual(energyRequests(config), [{ oid: 'e.pv', seconds: 3600 }]);
         const runtime = computeRuntime(
             config,
             createValueGetter({ 'e.pv': 500 }),
@@ -1856,6 +1887,115 @@ describe('key figures and energy of today', () => {
         assert.deepEqual(
             runtime.nodes[0].badges.map(badge => [badge.label, badge.text.replace(/\u00a0/g, ' ')]),
             [['Heute', '3.20 kWh']],
+        );
+    });
+
+    it('takes the energy of the day from a counter of its own when it has one', () => {
+        const counted: FlowConfig = {
+            v: 1,
+            canvas: { w: 300, h: 200 },
+            nodes: [
+                {
+                    id: 'pv',
+                    kind: 'source',
+                    x: 100,
+                    y: 100,
+                    value: { oid: 'e.pv' },
+                    energyToday: { label: 'Heute', src: { oid: 'e.day' } },
+                },
+            ],
+            edges: [],
+        };
+        // The history adapter is not asked for a node that counts the day itself
+        assert.deepEqual(energyRequests(counted), []);
+        // A flow per minute is integrated over minutes, or the litres would be sixty times too many
+        assert.deepEqual(
+            energyRequests({
+                ...counted,
+                nodes: counted.nodes.map(node => ({ ...node, unit: 'l/min', energyToday: { label: 'Heute' } })),
+            }),
+            [{ oid: 'e.pv', seconds: 60 }],
+        );
+        // ... and the state it reads is subscribed
+        assert.ok(collectOids(counted).includes('e.day'));
+
+        const badges = (options: Parameters<typeof computeRuntime>[3]): (string | undefined)[][] =>
+            computeRuntime(
+                counted,
+                createValueGetter({ 'e.pv': 500, 'e.day': 2.81 }),
+                { ...LIGHT_THEME, locale: 'en-US' },
+                options,
+            ).nodes[0].badges.map(badge => [badge.label, badge.text.replace(/\u00a0/g, ' ')]);
+
+        // No unit on the object: a counter of the day is in kWh
+        assert.deepEqual(badges({}), [['Heute', '2.81 kWh']]);
+        // Its own unit wins: the same number in Wh, and whole watt hours print without decimals
+        assert.deepEqual(badges({ units: () => 'Wh' }), [['Heute', '3 Wh']]);
+        // The counter wins over what the history adapter would have integrated
+        assert.deepEqual(badges({ energy: () => 9999 }), [['Heute', '2.81 kWh']]);
+    });
+});
+
+describe('what flows', () => {
+    it('reads the time base of a flow out of its unit', () => {
+        // A power is counted in hours, which is what Wh means
+        assert.equal(integralSeconds('W'), 3600);
+        assert.equal(integralSeconds('kW'), 3600);
+        assert.equal(integralSeconds(undefined), 3600);
+        // A flow says its own: litres per minute are litres after sixty seconds
+        assert.equal(integralSeconds('l/min'), 60);
+        assert.equal(integralSeconds('l/s'), 1);
+        assert.equal(integralSeconds('m\u00B3/h'), 3600);
+    });
+
+    it('names the amount a flow adds up to', () => {
+        assert.equal(amountUnit('W'), 'Wh');
+        assert.equal(amountUnit('l/min'), 'l');
+        assert.equal(amountUnit('m\u00B3/h'), 'm\u00B3');
+        assert.equal(amountUnit(''), '');
+    });
+
+    it('presets the unit, the dot speed and the icons of a medium', () => {
+        assert.equal(mediumOf(undefined).id, 'energy');
+        assert.equal(mediumOf({ ...buildPreset('pv-home', key => key), defaults: {} }).id, 'energy');
+        const water = buildPreset('water-cistern', key => key);
+        assert.equal(mediumOf(water).id, 'water');
+        assert.equal(water.defaults?.unit, 'l/min');
+        assert.equal(water.defaults?.animation?.refPower, 12);
+        // A node that names no icon gets the one of its kind *in that medium*
+        assert.equal(defaultIcon('source', water), 'well');
+        assert.equal(defaultIcon('storage', water), 'cistern');
+        assert.equal(defaultIcon('source', undefined), 'solar');
+    });
+
+    it('counts the day of a water flow in litres, not in watt hours', () => {
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 300, h: 200 },
+            defaults: { medium: 'water', unit: 'l/min' },
+            nodes: [
+                {
+                    id: 'tap',
+                    kind: 'sink',
+                    x: 100,
+                    y: 100,
+                    value: { oid: 'w.flow' },
+                    energyToday: { label: 'Heute' },
+                },
+            ],
+            edges: [],
+        };
+        // Integrated over minutes, so the history adapter is asked for exactly that
+        assert.deepEqual(energyRequests(config), [{ oid: 'w.flow', seconds: 60 }]);
+        const runtime = computeRuntime(
+            config,
+            createValueGetter({ 'w.flow': 9 }),
+            { ...LIGHT_THEME, locale: 'en-US' },
+            { energy: () => 118 },
+        );
+        assert.deepEqual(
+            runtime.nodes[0].badges.map(badge => badge.text.replace(/\u00a0/g, ' ')),
+            ['118 l'],
         );
     });
 });
@@ -1953,7 +2093,7 @@ describe('assistant', () => {
     });
 });
 
-type FlowEdgeLike = EnergyFlowConfig['edges'][0];
+type FlowEdgeLike = FlowConfig['edges'][0];
 
 describe('diagram styles', () => {
     it('falls back to normal and keeps the host theme there', () => {
@@ -1970,7 +2110,7 @@ describe('diagram styles', () => {
     });
 
     it('follows the light or dark mode of the host', () => {
-        const config: EnergyFlowConfig = { ...buildPreset('pv-home', key => key), defaults: { style: 'clean' } };
+        const config: FlowConfig = { ...buildPreset('pv-home', key => key), defaults: { style: 'clean' } };
         const light = styledTheme(LIGHT_THEME, config);
         const dark = styledTheme(DARK_THEME, config);
         assert.equal(light.mode, 'light');
@@ -1983,7 +2123,7 @@ describe('diagram styles', () => {
 
     it('shows the level of a circle as a ring in neon, as a fill elsewhere', () => {
         const markup = (style: 'normal' | 'neon'): string => {
-            const config: EnergyFlowConfig = {
+            const config: FlowConfig = {
                 v: 1,
                 canvas: { w: 200, h: 200 },
                 defaults: { style },
@@ -2004,7 +2144,7 @@ describe('diagram styles', () => {
                 edges: [],
             };
             const runtime = computeRuntime(config, createValueGetter({ pv: 250 }), DARK_THEME);
-            return renderToStaticMarkup(React.createElement(EnergyFlowView, { runtime, theme: DARK_THEME }));
+            return renderToStaticMarkup(React.createElement(FlowView, { runtime, theme: DARK_THEME }));
         };
         const neon = markup('neon');
         // A quarter of the way round, clockwise from the top (100, 50): ends at the right (150, 100)
@@ -2017,6 +2157,26 @@ describe('diagram styles', () => {
         const normal = markup('normal');
         assert.ok(normal.includes('<clipPath'), 'the fill from the bottom');
         assert.ok(!normal.includes('<filter'));
+    });
+
+    it('puts the value of a connection on the line when it is drawn as a chip', () => {
+        const base: FlowConfig = {
+            v: 1,
+            canvas: { w: 400, h: 200 },
+            nodes: [
+                { id: 'a', kind: 'source', x: 80, y: 100 },
+                { id: 'b', kind: 'sink', x: 320, y: 100 },
+            ],
+            edges: [{ id: 'a-b', from: 'a', to: 'b', value: { oid: 'p' }, showValue: true }],
+        };
+        const get = createValueGetter({ p: 1200 });
+        const beside = computeRuntime(base, get, LIGHT_THEME).edges[0];
+        const chip = computeRuntime({ ...base, defaults: { edgeLabel: 'chip' } }, get, LIGHT_THEME).edges[0];
+        // Beside: above the line, by more than the text is high
+        assert.equal(beside.labelPos.x, beside.geometry.mid.x);
+        assert.ok(Math.abs(beside.labelPos.y - beside.geometry.mid.y) > 10);
+        // As a chip: on the line, because it brings its own background
+        assert.deepEqual(chip.labelPos, chip.geometry.mid);
     });
 
     it('knows where a line starts and ends, and which way it runs there', () => {
@@ -2042,7 +2202,7 @@ describe('label sizes', () => {
     });
 
     it('scales a node label relative to the diagram label size', () => {
-        const config: EnergyFlowConfig = { ...buildPreset('pv-home', key => key), defaults: { labelSize: 20 } };
+        const config: FlowConfig = { ...buildPreset('pv-home', key => key), defaults: { labelSize: 20 } };
         const node = { ...config.nodes[0], labelScale: 1.5 };
         assert.equal(nodeLabelSize(node, config), 30);
         assert.equal(nodeLabelSize({ ...node, labelScale: undefined }, config), 20);

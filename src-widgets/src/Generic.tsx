@@ -1,7 +1,7 @@
 import type { VisRxWidgetState } from '@iobroker/types-vis-2';
 import type VisRxWidget from '@iobroker/types-vis-2/visRxWidget';
 
-import { I18N_PREFIX } from '@energyflow/i18n';
+import { I18N_PREFIX } from '@flow/i18n';
 
 export { I18N_PREFIX };
 

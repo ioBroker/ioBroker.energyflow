@@ -4,7 +4,7 @@
  * user decides -- but it turns "an empty canvas and 4000 states" into "untick two lines".
  */
 import { uniqueId } from './model';
-import type { EnergyFlowConfig, FlowEdge, FlowNode } from './types';
+import type { FlowConfig, FlowEdge, FlowNode } from './types';
 
 /** What a power state is taken for */
 export type DeviceKind = 'source' | 'grid' | 'storage' | 'sink';
@@ -156,7 +156,7 @@ function sinkIcon(text: string): string | undefined {
  * @param options.soc state of charge of the (first) battery
  * @returns the diagram
  */
-export function buildFromDevices(choices: DeviceChoice[], options: { home: string; soc?: string }): EnergyFlowConfig {
+export function buildFromDevices(choices: DeviceChoice[], options: { home: string; soc?: string }): FlowConfig {
     // The first consumer that is the house itself becomes the house's value
     const house = choices.find(choice => choice.kind === 'sink' && isHouse(`${choice.oid} ${choice.label}`));
     const of = (kind: DeviceKind): DeviceChoice[] => choices.filter(choice => choice.kind === kind && choice !== house);

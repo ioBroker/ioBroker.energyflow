@@ -5,7 +5,7 @@
  * needed in both, and two copies of nearly two hundred keys would drift apart within one release.
  *
  * `prefix` is what `I18n.extendTranslations` uses to namespace every key, so `insp_node` is stored as
- * `energyflow_insp_node` and cannot collide with another widget set. Both hosts go through that same
+ * `flow_insp_node` and cannot collide with another widget set. Both hosts go through that same
  * function -- vis-2 when it loads the widget set, the device manager in its plugin loader -- so this
  * one module serves both.
  *
@@ -26,7 +26,7 @@ import uk from './uk.json';
 import zhCn from './zh-cn.json';
 
 /** Namespace of every key of this adapter */
-export const I18N_PREFIX = 'energyflow_';
+export const I18N_PREFIX = 'flow_';
 
 const translations = {
     en,

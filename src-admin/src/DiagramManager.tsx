@@ -51,14 +51,14 @@ import {
     nameFromFileName,
     readImport,
     slugify,
-    type EnergyFlowConfig,
+    type FlowConfig,
     type ImportItem,
-} from '@energyflow/core';
+} from '@flow/core';
 import {
     createDiagram,
     deleteDiagram,
     downloadText,
-    EnergyFlowEditor,
+    FlowEditor,
     ImportSummary,
     importErrorText,
     pickFiles,
@@ -69,8 +69,8 @@ import {
     saveDiagram,
     useStoredDiagrams,
     type EditorContext,
-} from '@energyflow/editor';
-import { I18N_PREFIX } from '@energyflow/i18n';
+} from '@flow/editor';
+import { I18N_PREFIX } from '@flow/i18n';
 
 export interface DiagramManagerProps {
     socket: AdminConnection;
@@ -128,7 +128,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
 
     const [selected, setSelected] = React.useState<string | null>(null);
     /** The loaded content of the selected diagram; `undefined` while it is being fetched */
-    const [content, setContent] = React.useState<{ id: string; config: EnergyFlowConfig } | undefined>();
+    const [content, setContent] = React.useState<{ id: string; config: FlowConfig } | undefined>();
     /** Bumped to remount the designer, which is how "discard changes" restores the stored version */
     const [generation, setGeneration] = React.useState(0);
     const [dirty, setDirty] = React.useState(false);
@@ -137,7 +137,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
     const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null);
     const [toast, setToast] = React.useState<string | null>(null);
     /** Width and visibility of the diagram list, remembered per browser */
-    const [list, setList] = usePersistentState('energyflow.tab.list', { width: LIST_DEFAULT, open: true });
+    const [list, setList] = usePersistentState('flow.tab.list', { width: LIST_DEFAULT, open: true });
 
     // Open the first diagram once the list has arrived, so the page is not empty for no reason
     const firstId = diagrams[0]?.id;
@@ -191,7 +191,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
         });
     };
 
-    const onSave = (config: EnergyFlowConfig): void => {
+    const onSave = (config: FlowConfig): void => {
         if (!effectiveSelected) {
             return;
         }
@@ -204,7 +204,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
             .catch((error: unknown) => setToast(String(error)));
     };
 
-    const create = async (name: string, config: EnergyFlowConfig): Promise<void> => {
+    const create = async (name: string, config: FlowConfig): Promise<void> => {
         try {
             const id = await createDiagram(context.socket, name, config, instance);
             reload();
@@ -276,7 +276,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
     /** The stored diagrams as one file: the backup, or the set to move to another installation */
     const exportAll = async (): Promise<void> => {
         try {
-            const entries: { name: string; config: EnergyFlowConfig }[] = [];
+            const entries: { name: string; config: FlowConfig }[] = [];
             for (const entry of diagrams) {
                 const config = await loadDiagram(context.socket, entry.id);
                 if (config) {
@@ -284,7 +284,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
                 }
             }
             const day = new Date().toISOString().slice(0, 10);
-            downloadText(`energyflow-diagrams-${day}.json`, JSON.stringify(createBundle(entries), null, 4));
+            downloadText(`flow-diagrams-${day}.json`, JSON.stringify(createBundle(entries), null, 4));
             if (dirty) {
                 setToast(t('tab_export_unsaved'));
             }
@@ -541,7 +541,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
                         </Button>
                     </Stack>
                 ) : editorShown ? (
-                    <EnergyFlowEditor
+                    <FlowEditor
                         // A new id or a discard remounts it, which reinitialises the undo stack and
                         // the "clean" baseline from what is stored
                         key={`${effectiveSelected}:${generation}`}

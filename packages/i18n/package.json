@@ -1,5 +1,5 @@
 {
-    "name": "@energyflow/i18n",
+    "name": "@flow/i18n",
     "private": true,
     "version": "0.0.1",
     "description": "The shared dictionary of the vis-2 widget set and the device manager plugin",

@@ -11,13 +11,14 @@ import {
     energyRequests,
     historyRequests,
     loadEnergyToday,
+    type EnergyRequest,
     loadHistory,
-    type EnergyFlowConfig,
+    type FlowConfig,
     type HistoryGetter,
     type HistoryPoint,
     type HistoryReadOptions,
     type HistoryRequest,
-} from '@energyflow/core';
+} from '@flow/core';
 
 /** How often the charts are checked for staleness; `loadHistory` decides what is actually read */
 const CHECK_MS = 60000;
@@ -56,7 +57,7 @@ export function useDefaultHistory(socket: Connection | undefined): string | null
  */
 export function useHistory(
     socket: Connection | undefined,
-    config: EnergyFlowConfig,
+    config: FlowConfig,
     instance: string | null | undefined,
 ): HistoryGetter {
     const [known, setKnown] = React.useState<Record<string, HistoryPoint[]>>({});
@@ -104,25 +105,25 @@ export function useHistory(
  */
 export function useEnergyToday(
     socket: Connection | undefined,
-    config: EnergyFlowConfig,
+    config: FlowConfig,
     instance: string | null | undefined,
 ): (oid: string) => number | undefined {
     const [known, setKnown] = React.useState<Record<string, number | undefined>>({});
     const key = JSON.stringify(energyRequests(config));
 
     React.useEffect(() => {
-        const oids = JSON.parse(key) as string[];
-        if (!socket || !instance || !oids.length) {
+        const requests = JSON.parse(key) as EnergyRequest[];
+        if (!socket || !instance || !requests.length) {
             return undefined;
         }
         let cancelled = false;
         const read = (oid: string, options: HistoryReadOptions): Promise<unknown> =>
             socket.getHistory(oid, { instance, ignoreNull: true, ...options });
         const run = (): void => {
-            loadEnergyToday(oids, read)
+            loadEnergyToday(requests, read)
                 .then(() => {
                     if (!cancelled) {
-                        setKnown(Object.fromEntries(oids.map(oid => [oid, cachedEnergyToday(oid)])));
+                        setKnown(Object.fromEntries(requests.map(({ oid }) => [oid, cachedEnergyToday(oid)])));
                     }
                 })
                 .catch(() => undefined);

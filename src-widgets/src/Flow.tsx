@@ -2,7 +2,7 @@
  * The vis-2 widget.
  *
  * It is deliberately thin: subscribe to the states the document names, hand the numbers to
- * `@energyflow/core`, render. Everything that decides what the diagram *looks* like is in the core, so
+ * `@flow/core`, render. Everything that decides what the diagram *looks* like is in the core, so
  * the device manager plugin can be just as thin.
  *
  * The one thing vis-2 cannot do for us is the subscription. State ids that appear in `visAttrs` as
@@ -29,17 +29,17 @@ import {
     readDetail,
     computeRuntime,
     loadUnits,
-    EnergyFlowView,
+    FlowView,
     emptyConfig,
     parseStoredDiagram,
     readDiagramAttribute,
     themeFromMui,
     toNumber,
-    type EnergyFlowConfig,
+    type FlowConfig,
     type HistoryReader,
     type StateTimes,
     type FlowNode,
-} from '@energyflow/core';
+} from '@flow/core';
 
 import Generic from './Generic';
 // By path, not through the package index: that one would pull the designer and gui-components into the
@@ -52,15 +52,15 @@ import { HistoryDialog } from '../../packages/editor/src/HistoryDialog';
  */
 const LazyDiagramField = React.lazy(() => import('./DiagramField'));
 
-interface EnergyFlowRxData {
+interface FlowRxData {
     noCard: boolean;
     widgetTitle: string;
-    diagram: EnergyFlowConfig | string;
+    diagram: FlowConfig | string;
     /** Turn the moving dots off for this widget, whatever the document says */
     noAnimation: boolean;
 }
 
-interface EnergyFlowState extends VisRxWidgetState {
+interface FlowState extends VisRxWidgetState {
     /** Current value per state id; `null` means the state has none yet */
     efValues: Record<string, number | null>;
     /** Whether the dots should move right now */
@@ -69,7 +69,7 @@ interface EnergyFlowState extends VisRxWidgetState {
      * The diagram a reference points at, as last delivered by its state. Kept with the id it belongs
      * to, so a widget that was just switched to another diagram does not show the old one meanwhile.
      */
-    efStored: { id: string; config: EnergyFlowConfig | null } | null;
+    efStored: { id: string; config: FlowConfig | null } | null;
     /** Bumped when units of the states have arrived, see `units.ts` in the core */
     efUnits: number;
     /** When each state was written and changed, for nodes that show it */
@@ -88,7 +88,7 @@ const FLUSH_MS = 120;
 /** How often "12 minutes ago" is recomputed */
 const CLOCK_MS = 30000;
 
-export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowState> {
+export default class Flow extends Generic<FlowRxData, FlowState> {
     /** The ids currently subscribed, so a configuration change only diffs */
     private efSubscribed: string[] = [];
     private efPending: Record<string, number | null> = {};
@@ -121,12 +121,12 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
 
     static getWidgetInfo(): RxWidgetInfo {
         return {
-            id: 'tplEnergyflowDiagram',
-            visSet: 'energyflow',
+            id: 'tplFlowDiagram',
+            visSet: 'flow',
             visSetLabel: 'set_label',
-            visSetIcon: 'widgets/energyflow/img/energyflow.svg',
+            visSetIcon: 'widgets/flow/img/flow.svg',
             visSetColor: '#E0901A',
-            visName: 'EnergyFlow',
+            visName: 'Flow',
             visWidgetLabel: 'widget_label',
             visHelp: 'widget_help',
             visAttrs: [
@@ -158,13 +158,13 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                 },
             ],
             visDefaultStyle: { width: '100%', height: 340 },
-            visPrev: 'widgets/energyflow/img/prev_energyflow.svg',
+            visPrev: 'widgets/flow/img/prev_flow.svg',
         };
     }
 
     // Do not delete this method: vis-2 reads the widget configuration through the instance as well
     getWidgetInfo(): RxWidgetInfo {
-        return EnergyFlow.getWidgetInfo();
+        return Flow.getWidgetInfo();
     }
 
     componentDidMount(): void {
@@ -265,7 +265,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
      * has not arrived yet draws an empty diagram -- the "not configured" hint for a moment -- rather
      * than anything that belonged to a previous reference.
      */
-    private get efConfig(): EnergyFlowConfig {
+    private get efConfig(): FlowConfig {
         const attribute = readDiagramAttribute(this.state.rxData.diagram);
         if ('config' in attribute) {
             return attribute.config;
@@ -363,7 +363,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
         if (added.length) {
             socket
                 .subscribeState(added, this.efOnStateChange)
-                .catch((error: unknown) => console.warn(`energyflow: cannot subscribe: ${String(error)}`));
+                .catch((error: unknown) => console.warn(`flow: cannot subscribe: ${String(error)}`));
             // What the numbers are in comes from the objects; read once per state and page
             loadUnits(
                 added.filter(id => id !== ref),
@@ -403,7 +403,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                     context.socket
                         .getState(action.oid)
                         .then(state => context.setValue(action.oid!, !state?.val))
-                        .catch((error: unknown) => console.warn(`energyflow: cannot toggle: ${String(error)}`));
+                        .catch((error: unknown) => console.warn(`flow: cannot toggle: ${String(error)}`));
                 }
                 break;
 
@@ -457,7 +457,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                 color={node.color}
                 theme={theme}
                 unit={target.unit}
-                t={(key, ...args) => EnergyFlow.t(key, ...args.map(String))}
+                t={(key, ...args) => Flow.t(key, ...args.map(String))}
                 load={async (start, end, step) => {
                     if (this.efHistoryInstance === undefined) {
                         const config = await socket.getSystemConfig();
@@ -465,7 +465,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                     }
                     const instance = this.efHistoryInstance;
                     if (!instance) {
-                        throw new Error(EnergyFlow.t('insp_history_no_adapter'));
+                        throw new Error(Flow.t('insp_history_no_adapter'));
                     }
                     return readDetail(
                         (oid, options) =>
@@ -501,7 +501,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                 style={{ width: '100%', height: '100%', minHeight: 60, display: 'flex' }}
             >
                 {config.nodes.length ? (
-                    <EnergyFlowView
+                    <FlowView
                         runtime={runtime}
                         theme={theme}
                         animate={this.state.efAnimate}
@@ -520,7 +520,7 @@ export default class EnergyFlow extends Generic<EnergyFlowRxData, EnergyFlowStat
                             padding: 12,
                         }}
                     >
-                        {EnergyFlow.t('widget_not_configured')}
+                        {Flow.t('widget_not_configured')}
                     </div>
                 )}
             </div>

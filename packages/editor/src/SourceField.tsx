@@ -37,7 +37,7 @@ import {
     type Src,
     type SrcScaling,
     type SrcState,
-} from '@energyflow/core';
+} from '@flow/core';
 
 import type { EditorContext } from './types';
 
@@ -160,6 +160,97 @@ export function ScalingFields<T extends SrcScaling>(props: {
     );
 }
 
+/**
+ * What to put in front of `/adapter/<name>/<icon>` so the object browser finds the icons.
+ *
+ * Its own default is `.`, which is right only for a page that is served from the root -- the admin
+ * itself. The admin tab lives at `/adapter/flow/tab.html`, where `.` asks for
+ * `/adapter/flow/adapter/cameras/cameras.png` and every icon stays broken; vis-2 at
+ * `/vis-2/edit.html` is one level deep. So the prefix climbs as many levels as the page is deep,
+ * which keeps it relative -- an empty string would not do, the browser falls back to `.` for it.
+ *
+ * @returns the prefix, `.` at the root
+ */
+function pageImagePrefix(): string {
+    if (typeof window === 'undefined') {
+        return '.';
+    }
+    const path = window.location.pathname;
+    const depth = path.slice(0, path.lastIndexOf('/')).split('/').filter(Boolean).length;
+    return depth ? new Array(depth).fill('..').join('/') : '.';
+}
+
+export interface StateIdRowProps {
+    label: string;
+    value?: string;
+    placeholder?: string;
+    helperText?: string;
+    context: EditorContext;
+    onChange: (oid: string) => void;
+}
+
+/**
+ * A plain state id with the object browser next to it.
+ *
+ * For the fields that take an id and nothing else -- the state a click writes to, for instance.
+ * `StateSourceRow` below is the same thing for a `SrcState`, which carries the rescaling as well;
+ * both open the same dialog, so an id is picked the same way everywhere in the designer.
+ */
+export function StateIdRow(props: StateIdRowProps): React.JSX.Element {
+    const { label, value, placeholder, helperText, context, onChange } = props;
+    const [pickerOpen, setPickerOpen] = React.useState(false);
+
+    return (
+        <>
+            <Stack
+                sx={{ alignItems: 'flex-end', width: '100%' }}
+                direction="row"
+                spacing={1}
+            >
+                <TextField
+                    fullWidth
+                    variant="standard"
+                    size="small"
+                    label={label}
+                    value={value || ''}
+                    placeholder={placeholder}
+                    helperText={helperText}
+                    onChange={event => onChange(event.target.value)}
+                />
+                <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<ListIcon />}
+                    onClick={() => setPickerOpen(true)}
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                >
+                    {context.t('src_browse')}
+                </Button>
+            </Stack>
+
+            {pickerOpen ? (
+                <DialogSelectID
+                    socket={context.socket}
+                    theme={context.theme}
+                    themeType={context.themeType}
+                    lang={context.lang}
+                    imagePrefix={context.imagePrefix || pageImagePrefix()}
+                    selected={value || ''}
+                    types={['state']}
+                    onClose={() => setPickerOpen(false)}
+                    onOk={selected => {
+                        const id = Array.isArray(selected) ? selected[0] : selected;
+                        if (id) {
+                            onChange(id);
+                        }
+                        setPickerOpen(false);
+                    }}
+                />
+            ) : null}
+        </>
+    );
+}
+
 export interface StateSourceRowProps {
     value: SrcState;
     onChange: (src: SrcState) => void;
@@ -214,6 +305,7 @@ export function StateSourceRow(props: StateSourceRowProps): React.JSX.Element {
                     theme={context.theme}
                     themeType={context.themeType}
                     lang={context.lang}
+                    imagePrefix={context.imagePrefix || pageImagePrefix()}
                     selected={value.oid || ''}
                     types={['state']}
                     onClose={() => setPickerOpen(false)}

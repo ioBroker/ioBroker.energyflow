@@ -5,7 +5,7 @@
  * configuration**, because both are the same form renderer: `@iobroker/json-config`. A host can only
  * put foreign UI into that form through an item of `type: 'custom'`, which resolves the `url`,
  * registers it as a federation remote, loads the module named in `name` and renders the export it
- * points at. `EnergyFlowDm.getConfigSchema()` holds the device-manager half of that contract; the
+ * points at. `FlowDm.getConfigSchema()` holds the device-manager half of that contract; the
  * README documents the snippet for an adapter's own `jsonConfig.json`.
  *
  * The props are whatever `ConfigGeneric` passes down, plus the flattened `socket` / `theme` /
@@ -20,8 +20,8 @@ import React from 'react';
 import { I18n, type Connection, type IobTheme, type ThemeType } from '@iobroker/gui-components';
 import type { ConfigGenericProps } from '@iobroker/json-config';
 
-import { DiagramAttribute, type EditorContext } from '@energyflow/editor';
-import translations, { I18N_PREFIX } from '@energyflow/i18n';
+import { DiagramAttribute, type EditorContext } from '@flow/editor';
+import translations, { I18N_PREFIX } from '@flow/i18n';
 
 /** What `ConfigCustom` adds on top of the generic item props */
 interface DesignerProps extends ConfigGenericProps {
@@ -35,7 +35,7 @@ interface DesignerProps extends ConfigGenericProps {
  *
  * In the device manager the plugin loader has already done it -- it loads `./translations` before it
  * loads the widget. In an adapter's admin configuration **nothing does**, and without this the whole
- * designer renders raw keys like `energyflow_insp_node`. So the component brings its own words and
+ * designer renders raw keys like `flow_insp_node`. So the component brings its own words and
  * does not depend on how the host got here.
  *
  * `extendTranslations` rewrites the object it is handed (it consumes `prefix` and prefixes every key),
@@ -55,7 +55,7 @@ function ensureTranslations(): void {
         }
         I18n.extendTranslations(copy);
     } catch (error) {
-        console.warn(`energyflow: cannot register translations: ${String(error)}`);
+        console.warn(`flow: cannot register translations: ${String(error)}`);
     }
 }
 
@@ -117,7 +117,7 @@ export function Designer(props: DesignerProps): React.JSX.Element {
  * The components of this module, **as its default export**: both loaders that render a `custom` item
  * -- the one in `@iobroker/json-config` and the older copy the device manager carries -- read
  * `(await loadRemote(...)).default` and index *that* with the name from the schema
- * (`energyflow/Config/Designer`). A module with only named exports is reported as
+ * (`flow/Config/Designer`). A module with only named exports is reported as
  * "Component ... not found. Found:" with an empty list.
  */
 export default { Designer };

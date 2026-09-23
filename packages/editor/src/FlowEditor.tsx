@@ -5,7 +5,7 @@
  * really cancels -- see the note on the `open` prop for how that works. Nothing in here knows which
  * application it is running in -- see {@link EditorContext}.
  *
- * Undo works because every edit in `@energyflow/core` returns a new document: the history is a list of
+ * Undo works because every edit in `@flow/core` returns a new document: the history is a list of
  * those. A drag reports its intermediate positions as `transient`, which go into a draft that is not
  * on the history, so one drag is one undo step.
  */
@@ -51,9 +51,9 @@ import {
     needsClock,
     normalizeConfig,
     themeFromMui,
-    type EnergyFlowConfig,
+    type FlowConfig,
     type NodeKind,
-} from '@energyflow/core';
+} from '@flow/core';
 
 import { Canvas } from './Canvas';
 import { Inspector } from './Inspector';
@@ -65,16 +65,17 @@ import { useDefaultHistory, useEnergyToday, useHistory } from './useHistory';
 import { ResizeHandle } from './ResizeHandle';
 import { usePersistentState } from './usePersistentState';
 import { useEditorShortcuts } from './useEditorShortcuts';
+import { kindLabel } from './labels';
 import { KIND_ICONS } from './optionIcons';
 import { DeviceWizard } from './DeviceWizard';
 import { exportPng, exportSvg } from './exportImage';
 import type { EditorContext, EditorSelection } from './types';
 
-export interface EnergyFlowEditorProps {
+export interface FlowEditorProps {
     /**
      * Whether the dialog is shown.
      *
-     * **Mount this component only while the designer is open** (`{open ? <EnergyFlowEditor .../> : null}`).
+     * **Mount this component only while the designer is open** (`{open ? <FlowEditor .../> : null}`).
      * Every bit of editing state -- the document, the undo stack, the selection -- is initialised on
      * mount from `value`, so unmounting is what discards a cancelled session. Keeping it mounted with
      * `open={false}` would carry the abandoned edits into the next time it is opened.
@@ -88,7 +89,7 @@ export interface EnergyFlowEditorProps {
      */
     onClose: () => void;
     /** Called with the edited document on OK (dialog) or on save (inline) */
-    onSave: (config: EnergyFlowConfig) => void;
+    onSave: (config: FlowConfig) => void;
     context: EditorContext;
     /** Shown in the title bar, e.g. the widget name */
     title?: string;
@@ -122,7 +123,7 @@ const PALETTE: { kind: NodeKind; icon: React.ReactElement; label: string }[] = (
     ['source', 'sink', 'storage', 'grid', 'label', 'bus'] as const
 ).map(kind => ({ kind, icon: KIND_ICONS[kind], label: `kind_${kind}` }));
 
-export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Element {
+export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
     const { open, value, onClose, onSave, context, title, onDirtyChange, toolbarExtra, toolbarStart } = props;
     const inline = props.variant === 'inline';
     const muiTheme = useTheme();
@@ -132,12 +133,12 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
      * move the index to the *trimmed* length, and two separate setState calls cannot see each other's
      * result, so they drift apart as soon as the stack hits its cap.
      */
-    const [past, setPast] = React.useState<{ history: EnergyFlowConfig[]; index: number }>(() => ({
+    const [past, setPast] = React.useState<{ history: FlowConfig[]; index: number }>(() => ({
         history: [normalizeConfig(value)],
         index: 0,
     }));
     /** The document during a gesture; not on the history, so a drag is one undo step */
-    const [draft, setDraft] = React.useState<EnergyFlowConfig | null>(null);
+    const [draft, setDraft] = React.useState<FlowConfig | null>(null);
     const [selection, setSelection] = React.useState<EditorSelection>({ kind: 'canvas' });
     const [showGrid, setShowGrid] = React.useState(true);
     const [animate, setAnimate] = React.useState(true);
@@ -145,7 +146,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
      * Width and visibility of the properties panel. Remembered per browser, and shared by the dialog in
      * vis-2 and the admin tab -- whoever likes it wide likes it wide everywhere.
      */
-    const [inspector, setInspector] = usePersistentState('energyflow.editor.inspector', {
+    const [inspector, setInspector] = usePersistentState('flow.editor.inspector', {
         width: INSPECTOR_DEFAULT,
         open: true,
     });
@@ -163,7 +164,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
      * edit produces a new object, and undoing back to the saved state returns *that* object from the
      * history -- so "changed, then changed back" correctly reads as clean.
      */
-    const [baseline, setBaseline] = React.useState<EnergyFlowConfig>(() => past.history[0]);
+    const [baseline, setBaseline] = React.useState<FlowConfig>(() => past.history[0]);
     const dirty = config !== baseline;
 
     React.useEffect(() => {
@@ -197,7 +198,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
      * @param merge edits with the same key in quick succession replace each other on the stack, so
      *   holding an arrow key for a second is one undo step and not sixty
      */
-    const commit = React.useCallback((next: EnergyFlowConfig, transient?: boolean, merge?: string): void => {
+    const commit = React.useCallback((next: FlowConfig, transient?: boolean, merge?: string): void => {
         if (transient) {
             setDraft(next);
             return;
@@ -257,7 +258,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
         // Drop it in the middle of the free upper area rather than at 0,0 -- a new node that lands
         // under an existing one looks like nothing happened
         const at = { x: config.canvas.w / 2, y: Math.min(80 + config.nodes.length * 20, config.canvas.h - 80) };
-        const node = createNode(config, kind, at, context.t(`kind_${kind}`));
+        const node = createNode(config, kind, at, kindLabel(kind, config, context.t));
         commit({ ...config, nodes: [...config.nodes, node] });
         setSelection({ kind: 'node', id: node.id });
     };
@@ -398,7 +399,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                                     if (!svg) {
                                         return;
                                     }
-                                    const name = slugify(title || 'energyflow');
+                                    const name = slugify(title || 'flow');
                                     const background = config.canvas.background || flowTheme.background;
                                     if (format === 'svg') {
                                         exportSvg(svg, name, background);
@@ -474,7 +475,7 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
                     {PALETTE.map(entry => (
                         <Tooltip
                             key={entry.kind}
-                            title={context.t('editor_add', context.t(entry.label))}
+                            title={context.t('editor_add', kindLabel(entry.kind, config, context.t))}
                             placement="right"
                         >
                             <IconButton onClick={() => addNode(entry.kind)}>{entry.icon}</IconButton>
@@ -611,4 +612,4 @@ export function EnergyFlowEditor(props: EnergyFlowEditorProps): React.JSX.Elemen
     );
 }
 
-export default EnergyFlowEditor;
+export default FlowEditor;

@@ -5,12 +5,12 @@
 import React from 'react';
 import { Box, Button, Stack, Typography } from '@mui/material';
 
-import { DiagramAttribute, usePersistentState, type EditorContext } from '@energyflow/editor';
+import { DiagramAttribute, usePersistentState, type EditorContext } from '@flow/editor';
 
 export function ConfigPreview(props: { context: EditorContext; instance: number }): React.JSX.Element {
     const { context, instance } = props;
     // Kept per browser, so the attribute survives a reload the way a saved widget would
-    const [value, setValue] = usePersistentState<{ attribute: unknown }>('energyflow.preview.attribute', {
+    const [value, setValue] = usePersistentState<{ attribute: unknown }>('flow.preview.attribute', {
         attribute: null,
     });
 

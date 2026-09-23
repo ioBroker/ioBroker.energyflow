@@ -20,13 +20,13 @@ import {
     DIAGRAM_STYLE_IDS,
     diagramStyle,
     createValueGetter,
-    EnergyFlowView,
+    FlowView,
     DARK_THEME,
     LIGHT_THEME,
     importEnergiefluss,
     PRESETS,
-    type EnergyFlowConfig,
-    type EnergyFlowTheme,
+    type FlowConfig,
+    type FlowTheme,
 } from '../packages/core/src/index';
 
 const LABELS: Record<string, string> = {
@@ -36,6 +36,11 @@ const LABELS: Record<string, string> = {
     node_battery: 'Batterie',
     node_wallbox: 'Wallbox',
     node_heatpump: 'Wärmepumpe',
+    node_water_meter: 'Wasserzähler',
+    node_rain: 'Regen',
+    node_cistern: 'Zisterne',
+    node_bath: 'Bad',
+    node_garden: 'Garten',
 };
 
 const DEMO: Record<string, number> = {
@@ -46,9 +51,15 @@ const DEMO: Record<string, number> = {
     wallbox: 3600,
     heatpump: 1800,
     bus: 7300,
+    // Water flows, in l/min -- a shower is about twelve
+    meter: 9,
+    rain: 4,
+    cistern: 7,
+    bath: 7,
+    garden: 5,
 };
 
-function bind(config: EnergyFlowConfig): { config: EnergyFlowConfig; values: Record<string, number> } {
+function bind(config: FlowConfig): { config: FlowConfig; values: Record<string, number> } {
     const values: Record<string, number> = {};
     // Only the state of charge is bound directly; every node value is derived from its connections,
     // which is exactly what a user gets after picking a template and filling in the three ids
@@ -71,11 +82,11 @@ function bind(config: EnergyFlowConfig): { config: EnergyFlowConfig; values: Rec
 
 let cardCount = 0;
 
-function card(title: string, config: EnergyFlowConfig, values: Record<string, number>, theme: EnergyFlowTheme): string {
+function card(title: string, config: FlowConfig, values: Record<string, number>, theme: FlowTheme): string {
     const runtime = computeRuntime(config, createValueGetter(values), theme);
     // Every card is a render of its own, and React numbers the ids of each from zero: without a
     // prefix all cards share the filter and clip ids of the first one, and draw its shadows
-    const svg = renderToStaticMarkup(React.createElement(EnergyFlowView, { runtime, theme, animate: true }), {
+    const svg = renderToStaticMarkup(React.createElement(FlowView, { runtime, theme, animate: true }), {
         identifierPrefix: `card${cardCount++}-`,
     });
     // The worked example is portrait and needs more room than a template
@@ -107,7 +118,7 @@ cards.push(card('unconfigured · light', unset, {}, LIGHT_THEME));
  */
 const example = JSON.parse(
     readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'examples', 'hybrid-12v.json'), 'utf8'),
-) as EnergyFlowConfig;
+) as FlowConfig;
 
 const EXAMPLE_NODES: Record<string, number> = {
     dc: 195,
@@ -128,7 +139,7 @@ const EXAMPLE_EDGES: Record<string, number> = {
     'grid-ac': 177,
 };
 
-function bindExample(config: EnergyFlowConfig): { config: EnergyFlowConfig; values: Record<string, number> } {
+function bindExample(config: FlowConfig): { config: FlowConfig; values: Record<string, number> } {
     const values: Record<string, number> = {};
     const nodes = config.nodes.map(node => {
         const next = { ...node };
@@ -192,8 +203,17 @@ cards.push(card('imported from energiefluss-erweitert · dark', importedBound, i
  * Every style but the normal one, on a template and on the worked example, light and dark: a style has
  * to hold up in both modes of the host, and on a real installation as well as on a tidy template.
  */
+// The value of a connection as a chip on the line, the alternative to the text beside it
+const chips = bind(buildPreset('pv-battery-home', key => LABELS[key] || key));
+const chipConfig: FlowConfig = {
+    ...chips.config,
+    defaults: { ...chips.config.defaults, edgeLabel: 'chip' },
+};
+cards.push(card('edge labels as chips · light', chipConfig, chips.values, LIGHT_THEME));
+cards.push(card('edge labels as chips · dark', chipConfig, chips.values, DARK_THEME));
+
 for (const style of DIAGRAM_STYLE_IDS.filter(id => id !== 'normal')) {
-    const styled = (config: EnergyFlowConfig): EnergyFlowConfig => ({
+    const styled = (config: FlowConfig): FlowConfig => ({
         ...config,
         defaults: { ...config.defaults, style },
     });
@@ -223,7 +243,7 @@ for (const style of DIAGRAM_STYLE_IDS.filter(id => id !== 'normal')) {
     }
 }
 
-const html = `<!doctype html><html><head><meta charset="utf-8"><title>energyflow gallery</title>
+const html = `<!doctype html><html><head><meta charset="utf-8"><title>flow gallery</title>
 <style>
 body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #eef1f4; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }

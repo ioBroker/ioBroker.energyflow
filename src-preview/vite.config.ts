@@ -31,7 +31,7 @@ const config = {
         {
             // The socket.io client has to be loaded before the app starts, so `index.html` needs the
             // address as well -- as text, since no module code runs that early
-            name: 'energyflow-admin-address',
+            name: 'flow-admin-address',
             transformIndexHtml: (html: string): string =>
                 html.replace(/%ADMIN_ORIGIN%/g, `${admin.protocol}//${admin.hostname}:${adminPort}`),
         },
@@ -43,9 +43,9 @@ const config = {
     },
     resolve: {
         alias: {
-            '@energyflow/core': `${packages}/core/src/index.ts`,
-            '@energyflow/editor': `${packages}/editor/src/index.ts`,
-            '@energyflow/i18n': `${packages}/i18n/src/index.ts`,
+            '@flow/core': `${packages}/core/src/index.ts`,
+            '@flow/editor': `${packages}/editor/src/index.ts`,
+            '@flow/i18n': `${packages}/i18n/src/index.ts`,
         },
         dedupe: ['react', 'react-dom', '@emotion/react', '@mui/material', '@mui/system', '@mui/icons-material'],
     },

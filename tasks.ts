@@ -1,10 +1,10 @@
 /*!
- * Build tasks for ioBroker.energyflow.
+ * Build tasks for ioBroker.flow.
  *
  * Two bundles come out of one repository, each going to a place its host looks in:
  *
- * - `src-widgets/` -> `widgets/energyflow/`, declared in `io-package.json` as
- *   `common.visWidgets.energyflowWidgets.url`. This is what vis-2 loads.
+ * - `src-widgets/` -> `widgets/flow/`, declared in `io-package.json` as
+ *   `common.visWidgets.flowWidgets.url`. This is what vis-2 loads.
  * - `src-dm-widgets/` -> `admin/dm-widgets/`, declared as `common.deviceWidgets.url`. This is what
  *   `pluginLoader.ts` of ioBroker.devices loads, and what `@iobroker/json-config` fetches the
  *   designer from.
@@ -25,13 +25,13 @@ const DM_SRC = 'src-dm-widgets/';
 const ADMIN_SRC = 'src-admin/';
 
 /** Where vis-2 expects the widget set; must match `common.visWidgets.*.url` */
-const VIS_DEST = 'widgets/energyflow/';
+const VIS_DEST = 'widgets/flow/';
 
 /** Where ioBroker.devices expects the plugin; must match `common.deviceWidgets.url` */
 const DM_DEST = 'admin/dm-widgets/';
 
 /**
- * The admin tab. Admin loads `adapter/energyflow/tab.html` for an `adminTab` without a `link`, and
+ * The admin tab. Admin loads `adapter/flow/tab.html` for an `adminTab` without a `link`, and
  * the chunks go into a folder of their own (`assetsDir` in `src-admin/vite.config.ts`) so that this
  * build and the device manager's one can each wipe their output without touching the other's.
  */
@@ -106,14 +106,14 @@ function copyDm(): void {
     copyBuild(DM_SRC, DM_DEST);
     // The icon `common.deviceWidgets.components[].icon` points at, resolved by the device manager
     // relative to `admin/dm-widgets/`
-    copyFiles(['admin/energyflow.svg'], DM_DEST);
+    copyFiles(['admin/flow.svg'], DM_DEST);
 }
 
 /**
  * Put the tab where admin looks for it.
  *
  * `patchHtmlFile` swaps the dev-time socket loader for a static `<script>` tag; `'../..'` is the
- * path from `adapter/energyflow/tab.html` back to the web root, where admin serves `lib/js/socket.io.js`.
+ * path from `adapter/flow/tab.html` back to the web root, where admin serves `lib/js/socket.io.js`.
  */
 async function copyAdmin(): Promise<void> {
     copyFiles([`${ADMIN_SRC}build/tab-assets/**/*`], TAB_ASSETS);

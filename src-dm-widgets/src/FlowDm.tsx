@@ -2,7 +2,7 @@
  * The device manager plugin.
  *
  * Same job as the vis-2 widget, other host: subscribe to the states the document names, hand the
- * numbers to `@energyflow/core`, render. The diagram, the colours, the directions and the animation
+ * numbers to `@flow/core`, render. The diagram, the colours, the directions and the animation
  * are identical because they come from the same module -- the only thing this file decides is how a
  * diagram fits into a card that may be as small as one tile.
  *
@@ -39,41 +39,41 @@ import {
     readDetail,
     computeRuntime,
     loadUnits,
-    EnergyFlowView,
+    FlowView,
     emptyConfig,
     parseStoredDiagram,
     readDiagramAttribute,
     toNumber,
     createTheme,
-    type EnergyFlowConfig,
+    type FlowConfig,
     type FlowNode,
     type HistoryReader,
     type StateTimes,
-    type EnergyFlowConfigRef,
-} from '@energyflow/core';
-import { I18N_PREFIX } from '@energyflow/i18n';
+    type FlowConfigRef,
+} from '@flow/core';
+import { I18N_PREFIX } from '@flow/i18n';
 // By path: the package index would pull the designer and gui-components into the card's chunk
 import { HistoryDialog } from '../../packages/editor/src/HistoryDialog';
 
 /** Where the designer is loaded from when the settings dialog renders the `custom` item */
-const DESIGNER_URL = './adapter/energyflow/dm-widgets/customDevices.js';
+const DESIGNER_URL = './adapter/flow/dm-widgets/customDevices.js';
 
 /**
  * `<remote alias>/<exposed module>/<exported name>`.
  *
- * The alias is `energyflow` on purpose: that is the name `pluginLoader.ts` of ioBroker.devices already
+ * The alias is `flow` on purpose: that is the name `pluginLoader.ts` of ioBroker.devices already
  * registers this same remote entry under, so `registerRemotes` in `ConfigCustom` finds it registered
  * and reuses it instead of creating a second container for the same file.
  */
-const DESIGNER_COMPONENT = 'energyflow/Config/Designer';
+const DESIGNER_COMPONENT = 'flow/Config/Designer';
 
-export interface WidgetEnergyFlowSettings extends CustomWidgetBase {
+export interface WidgetFlowSettings extends CustomWidgetBase {
     /** The diagram, or a reference to a stored one -- the same value the vis-2 widget stores */
-    diagram?: EnergyFlowConfig | EnergyFlowConfigRef | string;
+    diagram?: FlowConfig | FlowConfigRef | string;
     noAnimation?: boolean;
 }
 
-interface EnergyFlowDmState extends WidgetGenericState {
+interface FlowDmState extends WidgetGenericState {
     efValues: Record<string, number | null>;
     /** When each state was written and changed, for nodes that show it */
     efTimes: Record<string, StateTimes & { raw?: unknown }>;
@@ -88,7 +88,7 @@ interface EnergyFlowDmState extends WidgetGenericState {
     efDialogFull: boolean;
     efAnimate: boolean;
     /** The referenced diagram, as last delivered by its state, with the id it belongs to */
-    efStored: { id: string; config: EnergyFlowConfig | null } | null;
+    efStored: { id: string; config: FlowConfig | null } | null;
     /** Bumped when units of the states have arrived, see `units.ts` in the core */
     efUnits: number;
 }
@@ -118,7 +118,7 @@ function t(key: string, ...args: (string | number)[]): string {
     return i18n ? i18n.t(`${I18N_PREFIX}${key}`, ...args) : `${I18N_PREFIX}${key}`;
 }
 
-export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyFlowSettings> {
+export class FlowDm extends WidgetGeneric<FlowDmState, WidgetFlowSettings> {
     private efSubscribed: string[] = [];
     private efPending: Record<string, number | null> = {};
     private efPendingTimes: Record<string, StateTimes & { raw?: unknown }> = {};
@@ -187,7 +187,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         };
     }
 
-    constructor(props: WidgetGenericProps<WidgetEnergyFlowSettings>) {
+    constructor(props: WidgetGenericProps<WidgetFlowSettings>) {
         super(props);
         this.state = {
             ...this.state,
@@ -225,7 +225,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         this.setState({ efAnimate: !this.efReducedMotion && !this.props.settings?.noAnimation });
     }
 
-    componentDidUpdate(previous: WidgetGenericProps<WidgetEnergyFlowSettings>): void {
+    componentDidUpdate(previous: WidgetGenericProps<WidgetFlowSettings>): void {
         if (previous.settings?.diagram !== this.props.settings?.diagram) {
             this.efSyncSubscriptions();
         }
@@ -258,7 +258,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
     }
 
     /** The document to draw -- see the same getter in the vis-2 widget for the reasoning */
-    private get efConfig(): EnergyFlowConfig {
+    private get efConfig(): FlowConfig {
         const attribute = readDiagramAttribute(this.props.settings?.diagram);
         if ('config' in attribute) {
             return attribute.config;
@@ -453,7 +453,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         }
 
         return (
-            <EnergyFlowView
+            <FlowView
                 runtime={this.efRuntime()}
                 theme={theme}
                 animate={this.state.efAnimate}
@@ -468,8 +468,11 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
      * the card is a summary and this is the thing itself.
      */
     /** The card only offers the detail view; switching and writing belong to the device's own controls */
-    private efOnNodeClick = (node: FlowNode): void => {
+    private efOnNodeClick = (node: FlowNode, event: React.MouseEvent): void => {
         if (node.action?.type === 'chart') {
+            // The card around it opens the full view on a click; a node with an action of its own
+            // has the last word
+            event.stopPropagation();
             this.setState({ efDetail: node.id });
         }
     };
@@ -544,8 +547,20 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                 </DialogTitle>
                 {/* Maximized, the diagram gets everything the dialog has; otherwise a fixed slice of
                     the window, because a `Dialog` grows with its content and would otherwise collapse */}
-                <DialogContent sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-                    <Box sx={{ flex: 1, minHeight: 0, height: full ? undefined : { xs: 320, sm: 420, md: '65vh' } }}>
+                {/* The diagram scales itself into whatever box it gets, so the box has to have a
+                    height of its own: without one the content grows and the dialog scrolls instead
+                    of showing the whole diagram. Maximized that height is the dialog's, otherwise a
+                    slice of the window. */}
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                    <Box
+                        sx={{
+                            minHeight: 0,
+                            // `flex: 1` sets `flex-basis: 0`, which beats a height -- maximized that
+                            // is what fills the dialog, and in the small one it would let the diagram
+                            // grow to its natural size instead, so there it gets a height and no flex
+                            ...(full ? { flex: 1 } : { height: { xs: 320, sm: 420, md: '65vh' } }),
+                        }}
+                    >
                         {this.efDiagram(false)}
                     </Box>
                 </DialogContent>
@@ -646,7 +661,19 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                     ...(square ? { aspectRatio: '1' } : {}),
                 })}
             >
-                <Box sx={{ position: 'relative', width: '100%', height: '100%', p: 1, pb: 3, overflow: 'hidden' }}>
+                {/* The whole card opens the full view, not just the button in its corner */}
+                <Box
+                    onClick={() => this.onTileClick()}
+                    sx={{
+                        position: 'relative',
+                        width: '100%',
+                        height: '100%',
+                        p: 1,
+                        pb: 3,
+                        overflow: 'hidden',
+                        cursor: 'pointer',
+                    }}
+                >
                     <Box
                         sx={{
                             display: 'flex',
@@ -692,4 +719,4 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
     }
 }
 
-export default EnergyFlowDm;
+export default FlowDm;

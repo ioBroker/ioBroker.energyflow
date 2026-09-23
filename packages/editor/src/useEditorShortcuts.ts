@@ -25,8 +25,8 @@ import {
     removeEdge,
     removeNodes,
     resizeNodes,
-    type EnergyFlowConfig,
-} from '@energyflow/core';
+    type FlowConfig,
+} from '@flow/core';
 
 import { selectedNodeIds, selectNodes } from './selection';
 import type { EditorSelection } from './types';
@@ -111,10 +111,10 @@ function writeClipboard(text: string): void {
 export interface EditorShortcutsOptions {
     /** The designer's outermost element: shortcuts apply while the focus is in it */
     root: React.RefObject<HTMLElement | null>;
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     selection: EditorSelection;
     /** See `commit` in the editor: `merge` joins repeated key presses into one undo step */
-    commit: (config: EnergyFlowConfig, transient?: boolean, merge?: string) => void;
+    commit: (config: FlowConfig, transient?: boolean, merge?: string) => void;
     select: (selection: EditorSelection) => void;
     /** True during a drag: the document is a draft then, and a paste would be lost with it */
     disabled?: boolean;

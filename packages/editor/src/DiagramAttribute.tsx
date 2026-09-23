@@ -33,18 +33,18 @@ import {
     emptyConfig,
     readDiagramAttribute,
     themeFromMui,
-    type EnergyFlowConfig,
-    type EnergyFlowConfigRef,
-} from '@energyflow/core';
+    type FlowConfig,
+    type FlowConfigRef,
+} from '@flow/core';
 
-import { EnergyFlowEditor } from './EnergyFlowEditor';
+import { FlowEditor } from './FlowEditor';
 import { createDiagram, loadDiagram, saveDiagram, useStoredDiagrams } from './storedDiagrams';
 import type { EditorContext } from './types';
 
 export interface DiagramAttributeProps {
     /** What the host stored: a diagram, a reference, a JSON string of either, or nothing */
     value: unknown;
-    onChange: (value: EnergyFlowConfig | EnergyFlowConfigRef) => void;
+    onChange: (value: FlowConfig | FlowConfigRef) => void;
     context: EditorContext;
     /** Adapter instance whose diagrams are offered; the adapter is a singleton */
     instance?: number;
@@ -69,7 +69,7 @@ export function DiagramAttribute(props: DiagramAttributeProps): React.JSX.Elemen
     const { diagrams, loading, reload } = useStoredDiagrams(context.socket, instance);
 
     /** The content of the referenced diagram, for the summary and for the designer */
-    const [stored, setStored] = React.useState<{ id: string; config: EnergyFlowConfig | null } | null>(null);
+    const [stored, setStored] = React.useState<{ id: string; config: FlowConfig | null } | null>(null);
     React.useEffect(() => {
         if (!ref) {
             return undefined;
@@ -92,7 +92,7 @@ export function DiagramAttribute(props: DiagramAttributeProps): React.JSX.Elemen
     }, [ref, context.socket]);
 
     const storedConfig = stored && stored.id === ref ? stored.config : null;
-    const shown: EnergyFlowConfig | null = 'config' in attribute ? attribute.config : storedConfig;
+    const shown: FlowConfig | null = 'config' in attribute ? attribute.config : storedConfig;
 
     const summary = React.useMemo(() => {
         if (!shown) {
@@ -139,7 +139,7 @@ export function DiagramAttribute(props: DiagramAttributeProps): React.JSX.Elemen
         }
     };
 
-    const saveFromDesigner = (config: EnergyFlowConfig): void => {
+    const saveFromDesigner = (config: FlowConfig): void => {
         if (!ref) {
             onChange(config);
             return;
@@ -289,7 +289,7 @@ export function DiagramAttribute(props: DiagramAttributeProps): React.JSX.Elemen
             </Stack>
 
             {designerOpen ? (
-                <EnergyFlowEditor
+                <FlowEditor
                     open
                     value={mode === 'stored' ? storedConfig : 'config' in attribute ? attribute.config : undefined}
                     onClose={() => setDesignerOpen(false)}

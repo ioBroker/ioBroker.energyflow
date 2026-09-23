@@ -17,23 +17,23 @@ import {
     pageLabelSize,
 } from './defaults';
 import { anchorOf, edgeGeometry, offsetFromLine, type EdgeGeometry } from './geometry';
-import { formatTimestamp, formatValue, mergeFormat, textWidth, unitScale, type FormattedValue } from './format';
+import {
+    amountUnit,
+    formatTimestamp,
+    formatValue,
+    mergeFormat,
+    textWidth,
+    unitScale,
+    type FormattedValue,
+} from './format';
 import { sourceMax, sourceUnit, type MaxGetter, type UnitGetter } from './units';
 import { HISTORY_PERIODS, sparklinePaths, type HistoryGetter } from './history';
 import { autarky, firstMatchingRule, rawText, scaleColor, selfConsumption } from './rules';
+import { mediumOf } from './media';
 import { styledTheme } from './styles';
 import { resolveSrc, srcOids, type TimeGetter, type ValueGetter } from './values';
-import { muteColor, type EnergyFlowTheme } from './theme';
-import type {
-    AnimationSettings,
-    EnergyFlowConfig,
-    FlowEdge,
-    FlowNode,
-    NodeKind,
-    NodeShape,
-    Point,
-    Rect,
-} from './types';
+import { muteColor, type FlowTheme } from './theme';
+import type { AnimationSettings, FlowConfig, FlowEdge, FlowNode, NodeKind, NodeShape, Point, Rect } from './types';
 
 export interface NodeBadgeRuntime {
     label?: string;
@@ -104,7 +104,7 @@ export interface EdgeRuntime {
 }
 
 export interface FlowRuntime {
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     nodes: NodeRuntime[];
     nodeById: Record<string, NodeRuntime>;
     edges: EdgeRuntime[];
@@ -123,7 +123,7 @@ export interface FlowRuntime {
  * @param config the diagram
  * @returns true when the host should keep a clock running
  */
-export function needsClock(config: EnergyFlowConfig): boolean {
+export function needsClock(config: FlowConfig): boolean {
     return !!config.defaults?.staleAfter || (config.nodes || []).some(node => node.timestamp || node.staleAfter);
 }
 
@@ -300,15 +300,17 @@ function commonEdgeUnit(id: string, edges: EdgeRuntime[]): string | undefined {
  * @returns everything the renderer draws
  */
 export function computeRuntime(
-    config: EnergyFlowConfig,
+    config: FlowConfig,
     get: ValueGetter,
-    hostTheme: EnergyFlowTheme,
+    hostTheme: FlowTheme,
     options: RuntimeOptions = {},
 ): FlowRuntime {
     // The diagram's style adjusts the host theme; node and line colours come from the adjusted one,
     // which is also the one the renderer draws with
     const theme = styledTheme(hostTheme, config);
     const { units, maxima, times, history, raw, energy } = options;
+    const chipLabels = config.defaults?.edgeLabel === 'chip';
+    const medium = mediumOf(config);
     const now = options.now ?? Date.now();
     const animation = animationSettings(config);
     const documentFormat = config.defaults;
@@ -323,7 +325,7 @@ export function computeRuntime(
         shape: nodeShape(node),
         color: node.color || theme.kinds[node.kind] || theme.text,
         // `undefined` takes the icon of the kind, `''` means the user removed it
-        icon: node.icon === undefined ? defaultIcon(node.kind) : node.icon,
+        icon: node.icon === undefined ? defaultIcon(node.kind, config) : node.icon,
         value: null,
         valueText: formatValue(null, {}),
         badges: [],
@@ -408,12 +410,15 @@ export function computeRuntime(
             locale: theme.locale,
         });
         // Far enough from the line that the text clears it and the arrow on it: beside a vertical
-        // line that is half the text's width, above a horizontal one half its height
+        // line that is half the text's width, above a horizontal one half its height. A chip brings
+        // its own background, so it sits on the line instead of next to it.
         const normal = { x: Math.abs(geometry.midDir.y), y: Math.abs(geometry.midDir.x) };
-        const labelDistance = Math.max(
-            labelFontSize + 5,
-            normal.x * (textWidth(valueText.text, labelFontSize, true) / 2) + normal.y * labelFontSize * 0.6 + 12,
-        );
+        const labelDistance = chipLabels
+            ? 0
+            : Math.max(
+                  labelFontSize + 5,
+                  normal.x * (textWidth(valueText.text, labelFontSize, true) / 2) + normal.y * labelFontSize * 0.6 + 12,
+              );
 
         edges.push({
             edge,
@@ -525,12 +530,32 @@ export function computeRuntime(
             }
         }
 
-        if (node.energyToday && energy && node.value && 'oid' in node.value && node.value.oid) {
-            const today = energy(node.value.oid);
-            if (today !== undefined) {
-                // Integrated in the state's unit times hours; in the base unit that is Wh, shown as kWh
-                const wh = today * unitScale(unit).factor;
-                const text = formatValue(wh, { unit: 'Wh', locale: theme.locale }).text;
+        if (node.energyToday) {
+            // Either the meter counts the day itself, or the history adapter integrates the value.
+            // Both end in the base of an *amount*: Wh for a power, litres for a flow per minute.
+            let amount: number | null = null;
+            let amountIn = '';
+            if (node.energyToday.src) {
+                const counted = resolveSrc(node.energyToday.src, get, shown);
+                if (counted !== null) {
+                    const countedScale = unitScale(sourceUnit(node.energyToday.src, units) || medium.counterUnit);
+                    amount = counted * countedScale.factor;
+                    amountIn = countedScale.base;
+                }
+            } else if (energy && node.value && 'oid' in node.value && node.value.oid) {
+                const today = energy(node.value.oid);
+                // Integrated in the state's own unit; scaled into the base one, kW into W
+                amount = today === undefined ? null : today * scale.factor;
+                amountIn = amountUnit(scale.base || medium.unit);
+            }
+            if (amount !== null) {
+                const text = formatValue(amount, {
+                    unit: amountIn,
+                    // Only energy climbs into the next prefix by itself -- nobody writes 5 kl where
+                    // they mean five cubic metres
+                    autoScale: amountIn.endsWith('Wh'),
+                    locale: theme.locale,
+                }).text;
                 runtime.badges.push({ label: node.energyToday.label, text });
             }
         }

@@ -6,7 +6,7 @@
  * preview re-renders because the object identity changed, without a single `forceUpdate`.
  */
 import { nodeLabelSize, nodeRect, nodeShape } from './defaults';
-import type { EnergyFlowConfig, FlowEdge, FlowNode, NodeKind, Point, Rect } from './types';
+import type { FlowConfig, FlowEdge, FlowNode, NodeKind, Point, Rect } from './types';
 
 /**
  * A readable, unique id.
@@ -32,7 +32,7 @@ export function uniqueId(prefix: string, taken: Iterable<string>): string {
 }
 
 /** All node and edge ids, so a new one cannot collide with either */
-export function allIds(config: EnergyFlowConfig): string[] {
+export function allIds(config: FlowConfig): string[] {
     return [...config.nodes.map(node => node.id), ...config.edges.map(edge => edge.id)];
 }
 
@@ -50,11 +50,11 @@ export function snap(value: number, grid: number | undefined): number {
     return Math.round(value / grid) * grid;
 }
 
-export function addNode(config: EnergyFlowConfig, node: FlowNode): EnergyFlowConfig {
+export function addNode(config: FlowConfig, node: FlowNode): FlowConfig {
     return { ...config, nodes: [...config.nodes, node] };
 }
 
-export function updateNode(config: EnergyFlowConfig, id: string, patch: Partial<FlowNode>): EnergyFlowConfig {
+export function updateNode(config: FlowConfig, id: string, patch: Partial<FlowNode>): FlowConfig {
     return {
         ...config,
         nodes: config.nodes.map(node => (node.id === id ? { ...node, ...patch } : node)),
@@ -68,7 +68,7 @@ export function updateNode(config: EnergyFlowConfig, id: string, patch: Partial<
  * endpoint is gone, so they would be invisible but still in the document, and they would reappear the
  * moment somebody created a node with the same id again.
  */
-export function removeNode(config: EnergyFlowConfig, id: string): EnergyFlowConfig {
+export function removeNode(config: FlowConfig, id: string): FlowConfig {
     return {
         ...config,
         nodes: config.nodes.filter(node => node.id !== id),
@@ -83,7 +83,7 @@ export function removeNode(config: EnergyFlowConfig, id: string): EnergyFlowConf
  * @param ids the nodes to remove
  * @returns the document without them
  */
-export function removeNodes(config: EnergyFlowConfig, ids: string[]): EnergyFlowConfig {
+export function removeNodes(config: FlowConfig, ids: string[]): FlowConfig {
     const gone = new Set(ids);
     return {
         ...config,
@@ -100,7 +100,7 @@ export function removeNodes(config: EnergyFlowConfig, ids: string[]): EnergyFlow
  * @param newId the desired id
  * @returns the document, unchanged if `newId` is already taken
  */
-export function renameNode(config: EnergyFlowConfig, id: string, newId: string): EnergyFlowConfig {
+export function renameNode(config: FlowConfig, id: string, newId: string): FlowConfig {
     if (!newId || newId === id || allIds(config).includes(newId)) {
         return config;
     }
@@ -115,18 +115,18 @@ export function renameNode(config: EnergyFlowConfig, id: string, newId: string):
     };
 }
 
-export function addEdge(config: EnergyFlowConfig, edge: FlowEdge): EnergyFlowConfig {
+export function addEdge(config: FlowConfig, edge: FlowEdge): FlowConfig {
     return { ...config, edges: [...config.edges, edge] };
 }
 
-export function updateEdge(config: EnergyFlowConfig, id: string, patch: Partial<FlowEdge>): EnergyFlowConfig {
+export function updateEdge(config: FlowConfig, id: string, patch: Partial<FlowEdge>): FlowConfig {
     return {
         ...config,
         edges: config.edges.map(edge => (edge.id === id ? { ...edge, ...patch } : edge)),
     };
 }
 
-export function removeEdge(config: EnergyFlowConfig, id: string): EnergyFlowConfig {
+export function removeEdge(config: FlowConfig, id: string): FlowConfig {
     return { ...config, edges: config.edges.filter(edge => edge.id !== id) };
 }
 
@@ -146,7 +146,7 @@ export function removeEdge(config: EnergyFlowConfig, id: string): EnergyFlowConf
  * @param dy vertical delta
  * @returns the document with those nodes moved
  */
-export function moveNodes(config: EnergyFlowConfig, ids: string[], dx: number, dy: number): EnergyFlowConfig {
+export function moveNodes(config: FlowConfig, ids: string[], dx: number, dy: number): FlowConfig {
     const moving = new Set(ids);
     const grid = config.canvas.grid;
     const shiftX = Math.round(dx);
@@ -180,7 +180,7 @@ export const MIN_NODE_SIZE = 20;
  * @param dh change of the height
  * @returns the document with those nodes resized
  */
-export function resizeNodes(config: EnergyFlowConfig, ids: string[], dw: number, dh: number): EnergyFlowConfig {
+export function resizeNodes(config: FlowConfig, ids: string[], dw: number, dh: number): FlowConfig {
     const resizing = new Set(ids);
     // Never below the minimum -- but a node that is already smaller (a bus junction) is not blown up
     const clamp = (current: number, delta: number): number =>
@@ -217,7 +217,7 @@ export function resizeNodes(config: EnergyFlowConfig, ids: string[], dw: number,
  * @param label its label
  * @returns the new node
  */
-export function createNode(config: EnergyFlowConfig, kind: NodeKind, at: Point, label?: string): FlowNode {
+export function createNode(config: FlowConfig, kind: NodeKind, at: Point, label?: string): FlowNode {
     const grid = config.canvas.grid;
     const node: FlowNode = {
         id: uniqueId(kind, allIds(config)),
@@ -248,7 +248,7 @@ export function createNode(config: EnergyFlowConfig, kind: NodeKind, at: Point, 
  * @param to target node id
  * @returns the new edge
  */
-export function createEdge(config: EnergyFlowConfig, from: string, to: string): FlowEdge {
+export function createEdge(config: FlowConfig, from: string, to: string): FlowEdge {
     const fromNode = config.nodes.find(node => node.id === from);
     const toNode = config.nodes.find(node => node.id === to);
     const bidirectional =
@@ -267,7 +267,7 @@ export function createEdge(config: EnergyFlowConfig, from: string, to: string): 
 }
 
 /** The smallest box containing every node, or null for an empty document */
-export function contentBounds(config: EnergyFlowConfig): Rect | null {
+export function contentBounds(config: FlowConfig): Rect | null {
     if (!config.nodes.length) {
         return null;
     }
@@ -295,7 +295,7 @@ export function contentBounds(config: EnergyFlowConfig): Rect | null {
  * @param margin space to leave around the content, in canvas units
  * @returns the document with a fitted canvas
  */
-export function fitCanvas(config: EnergyFlowConfig, margin = 40): EnergyFlowConfig {
+export function fitCanvas(config: FlowConfig, margin = 40): FlowConfig {
     const bounds = contentBounds(config);
     if (!bounds) {
         return config;

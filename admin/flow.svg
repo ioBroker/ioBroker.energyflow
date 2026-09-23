@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
-    <title>ioBroker energyflow</title>
+    <title>ioBroker flow</title>
     <!-- Sun (production) top left, grid bottom left, house right: the shape of the default preset,
          so the adapter icon and the diagram it produces are recognisably the same thing. -->
     <g fill="none" stroke-linecap="round" stroke-linejoin="round">

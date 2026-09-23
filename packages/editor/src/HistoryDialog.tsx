@@ -20,7 +20,7 @@ import {
     Typography,
 } from '@mui/material';
 
-import { HistoryChart, historyStatsText, type EnergyFlowTheme, type HistoryPoint } from '@energyflow/core';
+import { HistoryChart, historyStatsText, type FlowTheme, type HistoryPoint } from '@flow/core';
 
 /**
  * The close cross, drawn here: `@mui/icons-material` is not among the modules vis-2 shares, and one
@@ -51,7 +51,7 @@ export interface HistoryDialogProps {
     onClose: () => void;
     title: string;
     color: string;
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     unit?: string;
     /** Reads the recorded values of a stretch of time, averaged into steps of `step` ms */
     load: (start: number, end: number, step: number) => Promise<HistoryPoint[]>;

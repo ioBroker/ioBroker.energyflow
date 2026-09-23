@@ -5,19 +5,11 @@
  * knows. So everything here has a default, a node written by the editor is a handful of keys, and a
  * later version can change how an unset knob behaves for every existing diagram at once.
  */
-import type {
-    AnimationSettings,
-    EnergyFlowCanvas,
-    EnergyFlowConfig,
-    FlowEdge,
-    FlowNode,
-    NodeKind,
-    NodeShape,
-    Rect,
-} from './types';
+import { mediumOf } from './media';
+import type { AnimationSettings, FlowCanvas, FlowConfig, FlowEdge, FlowNode, NodeKind, NodeShape, Rect } from './types';
 
 /** Canvas units. The diagram is scaled into the box the host gives it, so these are not pixels. */
-export const DEFAULT_CANVAS: EnergyFlowCanvas = {
+export const DEFAULT_CANVAS: FlowCanvas = {
     w: 900,
     h: 560,
     grid: 10,
@@ -134,11 +126,14 @@ export function nodeRect(node: FlowNode): Rect {
 /**
  * The icon a node shows when it does not name one.
  *
+ * The medium decides: the source of a water diagram is a well, not a solar panel.
+ *
  * @param kind the node kind
+ * @param config the diagram, for its medium
  * @returns the name of a built-in icon, or an empty string
  */
-export function defaultIcon(kind: NodeKind): string {
-    return ICON_BY_KIND[kind] || '';
+export function defaultIcon(kind: NodeKind, config?: FlowConfig): string {
+    return mediumOf(config).icons[kind] ?? ICON_BY_KIND[kind] ?? '';
 }
 
 /**
@@ -147,7 +142,7 @@ export function defaultIcon(kind: NodeKind): string {
  * @param config the diagram
  * @returns fully populated animation settings
  */
-export function animationSettings(config: EnergyFlowConfig): Required<AnimationSettings> {
+export function animationSettings(config: FlowConfig): Required<AnimationSettings> {
     return { ...DEFAULT_ANIMATION, ...(config.defaults?.animation || {}) };
 }
 
@@ -158,7 +153,7 @@ export function animationSettings(config: EnergyFlowConfig): Required<AnimationS
  * @param config the diagram it belongs to
  * @returns the width in canvas units
  */
-export function edgeWidth(edge: FlowEdge, config: EnergyFlowConfig): number {
+export function edgeWidth(edge: FlowEdge, config: FlowConfig): number {
     return edge.width ?? config.defaults?.lineWidth ?? DEFAULT_LINE_WIDTH;
 }
 
@@ -171,7 +166,7 @@ export function edgeWidth(edge: FlowEdge, config: EnergyFlowConfig): number {
  * @param config the diagram
  * @returns the size in canvas units
  */
-export function pageLabelSize(config: EnergyFlowConfig): number {
+export function pageLabelSize(config: FlowConfig): number {
     const size = config.defaults?.labelSize;
     if (typeof size === 'number' && size > 0) {
         return size;
@@ -186,7 +181,7 @@ export function pageLabelSize(config: EnergyFlowConfig): number {
  * @param config the diagram it belongs to
  * @returns the size in canvas units, to one decimal
  */
-export function nodeLabelSize(node: FlowNode, config: EnergyFlowConfig): number {
+export function nodeLabelSize(node: FlowNode, config: FlowConfig): number {
     const scale = typeof node.labelScale === 'number' && node.labelScale > 0 ? node.labelScale : 1;
     return Math.round(pageLabelSize(config) * scale * 10) / 10;
 }
@@ -206,7 +201,7 @@ export function edgeThreshold(edge: FlowEdge): number {
  *
  * @returns a valid, empty document
  */
-export function emptyConfig(): EnergyFlowConfig {
+export function emptyConfig(): FlowConfig {
     return { v: 1, canvas: { ...DEFAULT_CANVAS }, nodes: [], edges: [] };
 }
 
@@ -220,7 +215,7 @@ export function emptyConfig(): EnergyFlowConfig {
  * @param raw the stored configuration
  * @returns a document with the required fields present
  */
-export function normalizeConfig(raw: unknown): EnergyFlowConfig {
+export function normalizeConfig(raw: unknown): FlowConfig {
     let parsed: unknown = raw;
 
     if (typeof raw === 'string') {
@@ -238,8 +233,8 @@ export function normalizeConfig(raw: unknown): EnergyFlowConfig {
         return emptyConfig();
     }
 
-    const config = parsed as Partial<EnergyFlowConfig>;
-    const canvas = config.canvas || ({} as Partial<EnergyFlowCanvas>);
+    const config = parsed as Partial<FlowConfig>;
+    const canvas = config.canvas || ({} as Partial<FlowCanvas>);
 
     return {
         v: 1,

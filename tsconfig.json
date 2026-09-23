@@ -17,11 +17,11 @@
         "strict": true,
         "types": ["node", "mocha", "@iobroker/types"],
         "paths": {
-            "@energyflow/core": ["./packages/core/src/index.ts"],
-            "@energyflow/core/*": ["./packages/core/src/*"],
-            "@energyflow/editor": ["./packages/editor/src/index.ts"],
-            "@energyflow/editor/*": ["./packages/editor/src/*"],
-            "@energyflow/i18n": ["./packages/i18n/src/index.ts"]
+            "@flow/core": ["./packages/core/src/index.ts"],
+            "@flow/core/*": ["./packages/core/src/*"],
+            "@flow/editor": ["./packages/editor/src/index.ts"],
+            "@flow/editor/*": ["./packages/editor/src/*"],
+            "@flow/i18n": ["./packages/i18n/src/index.ts"]
         }
     },
     "include": ["packages/*/src/**/*", "tasks.ts", "tools/**/*", "test/**/*", "*.mjs"],

@@ -32,7 +32,7 @@ import {
 } from '@mui/material';
 import { ContentCopy, Download, FolderOpen } from '@mui/icons-material';
 
-import { readImport, type EnergyFlowConfig, type ImportItem } from '@energyflow/core';
+import { readImport, type FlowConfig, type ImportItem } from '@flow/core';
 
 import { downloadText, pickFiles } from './fileTransfer';
 import { importErrorText } from './importMessages';
@@ -40,9 +40,9 @@ import type { EditorContext } from './types';
 
 export interface JsonDialogProps {
     open: boolean;
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     onClose: () => void;
-    onApply: (config: EnergyFlowConfig) => void;
+    onApply: (config: FlowConfig) => void;
     context: EditorContext;
     /** Suggested name of the downloaded file; the diagram's name makes a better one than a constant */
     fileName?: string;
@@ -90,7 +90,7 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
             .catch(() => setCopied(false));
     };
 
-    const download = (): void => downloadText(fileName || 'energyflow.json', text);
+    const download = (): void => downloadText(fileName || 'flow.json', text);
 
     /** Put a file's content into the box; applying it is still a separate, deliberate step */
     const openFile = (): void => {
@@ -100,7 +100,7 @@ function JsonDialogBody(props: Omit<JsonDialogProps, 'open'>): React.JSX.Element
                     setText(files[0].text);
                 }
             })
-            .catch((caught: unknown) => console.warn(`energyflow: cannot read the file: ${String(caught)}`));
+            .catch((caught: unknown) => console.warn(`flow: cannot read the file: ${String(caught)}`));
     };
 
     const apply = (): void => {

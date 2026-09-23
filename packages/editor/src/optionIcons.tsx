@@ -39,7 +39,7 @@ import {
     West,
 } from '@mui/icons-material';
 
-import type { EdgeCurve, EdgeMode, NodeKind, NodeShape, Side, TimestampFormat } from '@energyflow/core';
+import type { EdgeCurve, EdgeMode, NodeKind, NodeShape, Side, TimestampFormat } from '@flow/core';
 
 function StrokeIcon(props: SvgIconProps & { children: React.ReactNode }): React.JSX.Element {
     const { children, ...rest } = props;

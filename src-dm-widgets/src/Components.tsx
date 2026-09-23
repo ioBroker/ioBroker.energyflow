@@ -5,8 +5,8 @@
  * export** by the `name` from `common.deviceWidgets.components[]` in `io-package.json`. So this object
  * and that list have to stay in step -- a mismatch shows up as "Plugin component X not found".
  */
-import EnergyFlowDm from './EnergyFlowDm';
+import FlowDm from './FlowDm';
 
 export default {
-    EnergyFlow: EnergyFlowDm,
+    Flow: FlowDm,
 };

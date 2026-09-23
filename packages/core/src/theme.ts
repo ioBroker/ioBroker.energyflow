@@ -11,7 +11,7 @@ import type { NodeKind } from './types';
 
 export type ThemeMode = 'light' | 'dark';
 
-export interface EnergyFlowTheme {
+export interface FlowTheme {
     mode: ThemeMode;
     /** Primary text, e.g. the value inside a node */
     text: string;
@@ -56,7 +56,7 @@ const DARK_KINDS: Record<NodeKind, string> = {
     image: '#E6EAF0',
 };
 
-export const LIGHT_THEME: EnergyFlowTheme = {
+export const LIGHT_THEME: FlowTheme = {
     mode: 'light',
     text: '#1F2933',
     textSecondary: '#5A6672',
@@ -67,7 +67,7 @@ export const LIGHT_THEME: EnergyFlowTheme = {
     kinds: LIGHT_KINDS,
 };
 
-export const DARK_THEME: EnergyFlowTheme = {
+export const DARK_THEME: FlowTheme = {
     mode: 'dark',
     text: '#E6EAF0',
     textSecondary: '#98A3B1',
@@ -85,7 +85,7 @@ export const DARK_THEME: EnergyFlowTheme = {
  * @param overrides values that replace the defaults
  * @returns the theme
  */
-export function createTheme(mode: ThemeMode, overrides?: Partial<EnergyFlowTheme>): EnergyFlowTheme {
+export function createTheme(mode: ThemeMode, overrides?: Partial<FlowTheme>): FlowTheme {
     const base = mode === 'dark' ? DARK_THEME : LIGHT_THEME;
     return {
         ...base,
@@ -107,7 +107,7 @@ export interface MuiLikeTheme {
 }
 
 /**
- * Flatten whatever MUI theme the host is running into an {@link EnergyFlowTheme}.
+ * Flatten whatever MUI theme the host is running into an {@link FlowTheme}.
  *
  * The node accents deliberately do **not** come from the MUI palette: they encode a meaning (sun,
  * grid, battery) that must stay recognisable across the themes a user picks in vis-2, and a diagram
@@ -117,7 +117,7 @@ export interface MuiLikeTheme {
  * @param locale BCP-47 tag for number formatting
  * @returns the flattened theme
  */
-export function themeFromMui(theme: MuiLikeTheme | undefined, locale?: string): EnergyFlowTheme {
+export function themeFromMui(theme: MuiLikeTheme | undefined, locale?: string): FlowTheme {
     const mode: ThemeMode = theme?.palette?.mode === 'dark' ? 'dark' : 'light';
     const base = mode === 'dark' ? DARK_THEME : LIGHT_THEME;
 
@@ -142,7 +142,7 @@ export function themeFromMui(theme: MuiLikeTheme | undefined, locale?: string): 
  * @param amount 0 keeps the colour, 1 is fully idle
  * @returns the muted colour
  */
-export function muteColor(color: string, theme: EnergyFlowTheme, amount = 0.72): string {
+export function muteColor(color: string, theme: FlowTheme, amount = 0.72): string {
     const rgb = parseHex(color);
     const target = parseHex(theme.idle);
     if (!rgb || !target) {

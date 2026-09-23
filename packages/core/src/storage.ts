@@ -3,8 +3,8 @@
  *
  * A diagram can live in two places. **Inline**, inside the widget that shows it -- which is how the
  * first version did it: it travels with a view export and needs nothing else. Or **stored**, as a
- * state `energyflow.<instance>.diagrams.<id>` holding the document as JSON, with the widget carrying
- * nothing but a reference to it (`{ "$ref": "energyflow.0.diagrams.pv" }`, see {@link EnergyFlowConfigRef}).
+ * state `flow.<instance>.diagrams.<id>` holding the document as JSON, with the widget carrying
+ * nothing but a reference to it (`{ "$ref": "flow.0.diagrams.pv" }`, see {@link FlowConfigRef}).
  *
  * The second one is what makes a diagram editable in the admin without opening vis-2, and usable in
  * vis-2 and the device manager at the same time. It is a state rather than an object because both hosts
@@ -12,7 +12,7 @@
  * through the same channel that delivers the power readings.
  */
 import { normalizeConfig } from './defaults';
-import { isConfigRef, type EnergyFlowConfig, type EnergyFlowConfigOrRef } from './types';
+import { isConfigRef, type FlowConfig, type FlowConfigOrRef } from './types';
 
 /** Name of the channel under the instance that holds the diagrams */
 export const DIAGRAM_CHANNEL = 'diagrams';
@@ -21,10 +21,10 @@ export const DIAGRAM_CHANNEL = 'diagrams';
  * The common prefix of every stored diagram of an instance.
  *
  * @param instance the adapter instance; the adapter is a singleton, so this is 0 in practice
- * @returns e.g. `energyflow.0.diagrams.`
+ * @returns e.g. `flow.0.diagrams.`
  */
 export function diagramPrefix(instance = 0): string {
-    return `energyflow.${instance}.${DIAGRAM_CHANNEL}.`;
+    return `flow.${instance}.${DIAGRAM_CHANNEL}.`;
 }
 
 /**
@@ -32,10 +32,10 @@ export function diagramPrefix(instance = 0): string {
  * cannot be pointed at an arbitrary state and have its value parsed as a diagram.
  *
  * @param id the state id
- * @returns true for `energyflow.<n>.diagrams.<id>`
+ * @returns true for `flow.<n>.diagrams.<id>`
  */
 export function isDiagramId(id: string): boolean {
-    return /^energyflow\.\d+\.diagrams\.[a-z0-9_-]+$/i.test(id);
+    return /^flow\.\d+\.diagrams\.[a-z0-9_-]+$/i.test(id);
 }
 
 /**
@@ -91,7 +91,7 @@ export function newDiagramId(name: string, taken: Iterable<string>, instance = 0
  * @param config the diagram
  * @returns JSON text
  */
-export function serializeDiagram(config: EnergyFlowConfig): string {
+export function serializeDiagram(config: FlowConfig): string {
     return JSON.stringify(config);
 }
 
@@ -101,19 +101,19 @@ export function serializeDiagram(config: EnergyFlowConfig): string {
  * @param value the state value, normally a JSON string
  * @returns the diagram, or null if the state holds nothing usable yet
  */
-export function parseStoredDiagram(value: unknown): EnergyFlowConfig | null {
+export function parseStoredDiagram(value: unknown): FlowConfig | null {
     if (value === null || value === undefined || value === '') {
         return null;
     }
     // A stored diagram that itself points somewhere else would be a chain to follow; refuse it rather
     // than recurse, since nothing creates one on purpose
-    if (value && typeof value === 'object' && isConfigRef(value as EnergyFlowConfigOrRef)) {
+    if (value && typeof value === 'object' && isConfigRef(value as FlowConfigOrRef)) {
         return null;
     }
     if (typeof value === 'string') {
         try {
             const parsed: unknown = JSON.parse(value);
-            if (parsed && typeof parsed === 'object' && isConfigRef(parsed as EnergyFlowConfigOrRef)) {
+            if (parsed && typeof parsed === 'object' && isConfigRef(parsed as FlowConfigOrRef)) {
                 return null;
             }
         } catch {
@@ -132,7 +132,7 @@ export function parseStoredDiagram(value: unknown): EnergyFlowConfig | null {
  * @param stored the attribute value, possibly a JSON string
  * @returns the id of the referenced diagram, or the inline diagram
  */
-export function readDiagramAttribute(stored: unknown): { ref: string } | { config: EnergyFlowConfig } {
+export function readDiagramAttribute(stored: unknown): { ref: string } | { config: FlowConfig } {
     let value: unknown = stored;
     if (typeof stored === 'string' && stored.trim().startsWith('{')) {
         try {
@@ -141,7 +141,7 @@ export function readDiagramAttribute(stored: unknown): { ref: string } | { confi
             value = stored;
         }
     }
-    if (value && typeof value === 'object' && isConfigRef(value as EnergyFlowConfigOrRef)) {
+    if (value && typeof value === 'object' && isConfigRef(value as FlowConfigOrRef)) {
         const ref = (value as { $ref: string }).$ref;
         if (isDiagramId(ref)) {
             return { ref };

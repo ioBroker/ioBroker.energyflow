@@ -2,7 +2,7 @@
  * Renders the palette previews with the real renderer.
  *
  * A hand-drawn preview image is a promise about what the widget looks like, and it is the first thing
- * to go stale. This renders the presets through `EnergyFlowView` itself, with made-up but plausible
+ * to go stale. This renders the presets through `FlowView` itself, with made-up but plausible
  * values, so the picture in the vis-2 palette is by construction what the widget produces.
  *
  * Run through `tasks.ts --previews`, or directly with `npx tsx tools/generatePreviews.tsx`.
@@ -18,10 +18,10 @@ import {
     computeRuntime,
     createValueGetter,
     DARK_THEME,
-    EnergyFlowView,
+    FlowView,
     LIGHT_THEME,
-    type EnergyFlowConfig,
-    type EnergyFlowTheme,
+    type FlowConfig,
+    type FlowTheme,
 } from '../packages/core/src/index';
 
 /**
@@ -39,7 +39,7 @@ const FONT = "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Ar
  * @param markup what `renderToStaticMarkup` produced
  * @param theme the theme it was rendered with
  */
-function standalone(markup: string, theme: EnergyFlowTheme): string {
+function standalone(markup: string, theme: FlowTheme): string {
     const viewBox = /viewBox="([^"]+)"/.exec(markup)?.[1].split(' ').map(Number);
     // The built-in themes leave the background to the page; a file has to bring the page along
     const fill = theme.background !== 'transparent' ? theme.background : theme.mode === 'dark' ? '#181B20' : '#F8FAFC';
@@ -78,7 +78,7 @@ const DEMO_VALUES: Record<string, number> = {
  * The templates ship with empty state ids, so the ids are invented here and written into a copy -- the
  * template itself must stay unbound.
  */
-function bindDemoValues(config: EnergyFlowConfig): { config: EnergyFlowConfig; values: Record<string, number> } {
+function bindDemoValues(config: FlowConfig): { config: FlowConfig; values: Record<string, number> } {
     const values: Record<string, number> = {};
 
     // Only the state of charge is bound directly. The node values are derived from the connections,
@@ -120,9 +120,7 @@ function render(presetId: Parameters<typeof buildPreset>[0], fileName: string): 
 
     // `animate: false` puts a static arrow on each active edge instead of the moving dots -- a preview
     // is a still image, and an arrow says "direction" where a frozen dot says nothing
-    const markup = renderToStaticMarkup(
-        React.createElement(EnergyFlowView, { runtime, theme: LIGHT_THEME, animate: false }),
-    );
+    const markup = renderToStaticMarkup(React.createElement(FlowView, { runtime, theme: LIGHT_THEME, animate: false }));
 
     const svg = standalone(markup, LIGHT_THEME);
 
@@ -131,7 +129,7 @@ function render(presetId: Parameters<typeof buildPreset>[0], fileName: string): 
     console.log(`Wrote ${fileName} (${Math.round(svg.length / 1024)} kB)`);
 }
 
-render('pv-battery-home', 'prev_energyflow.svg');
+render('pv-battery-home', 'prev_flow.svg');
 
 /**
  * The worked example, with the numbers of the installation it was built from, for the README and
@@ -157,7 +155,7 @@ const EXAMPLE_EDGES: Record<string, number> = { 'battery-dc': 196, 'grid-battery
 
 function renderExample(): void {
     const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-    const config = JSON.parse(readFileSync(join(root, 'examples', 'hybrid-12v.json'), 'utf8')) as EnergyFlowConfig;
+    const config = JSON.parse(readFileSync(join(root, 'examples', 'hybrid-12v.json'), 'utf8')) as FlowConfig;
     const values: Record<string, number> = {};
 
     const nodes = config.nodes.map(node => {
@@ -191,7 +189,7 @@ function renderExample(): void {
         [DARK_THEME, 'prev_hybrid-12v-dark.svg'],
     ] as const) {
         const runtime = computeRuntime(bound, createValueGetter(values), theme);
-        const markup = renderToStaticMarkup(React.createElement(EnergyFlowView, { runtime, theme, animate: false }));
+        const markup = renderToStaticMarkup(React.createElement(FlowView, { runtime, theme, animate: false }));
         const svg = standalone(markup, theme);
         writeFileSync(join(VIS_IMG, fileName), svg, 'utf8');
         console.log(`Wrote ${fileName} (${Math.round(svg.length / 1024)} kB)`);

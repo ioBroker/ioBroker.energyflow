@@ -1,21 +1,22 @@
 /**
- * `@energyflow/editor` -- the designer, shared by both host bundles.
+ * `@flow/editor` -- the designer, shared by both host bundles.
  *
- * It is one component: {@link EnergyFlowEditor}, a full-screen dialog. The host supplies an
+ * It is one component: {@link FlowEditor}, a full-screen dialog. The host supplies an
  * {@link EditorContext} (socket, theme, language, translator) and gets a document back.
  *
  * Unlike the core, this does import MUI and `@iobroker/gui-components` -- both hosts provide those as
  * federation singletons, and the state picker and the colour picker are exactly the wheels that must
  * not be reinvented.
  */
-export { EnergyFlowEditor, type EnergyFlowEditorProps } from './EnergyFlowEditor';
+export { FlowEditor, type FlowEditorProps } from './FlowEditor';
 export { Canvas, type CanvasProps } from './Canvas';
 export { Inspector, type InspectorProps } from './Inspector';
 export { PresetDialog, type PresetDialogProps } from './PresetDialog';
 export { JsonDialog, ImportSummary, type JsonDialogProps } from './JsonDialog';
 export { downloadText, pickFiles, type PickedFile } from './fileTransfer';
 export { importErrorText } from './importMessages';
-export { ScalingFields, SourceField, StateSourceRow, type SourceFieldProps } from './SourceField';
+export { kindLabel } from './labels';
+export { ScalingFields, SourceField, StateIdRow, StateSourceRow, type SourceFieldProps } from './SourceField';
 export { IconPickerDialog, IconPreview } from './IconPicker';
 export { useClock, useLiveStates, useLiveValues } from './useLiveValues';
 export { useObjectUnits } from './useObjectUnits';

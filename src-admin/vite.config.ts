@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
  * The admin tab.
  *
  * An ordinary single-page app, not a federation remote: admin shows an adapter tab in an iframe that
- * loads `adapter/energyflow/tab.html`, so there is no host to share modules with.
+ * loads `adapter/flow/tab.html`, so there is no host to share modules with.
  *
  * `assetsDir: 'tab-assets'` keeps its chunks in their own folder under `admin/`, next to the device
  * manager plugin in `admin/dm-widgets/`. Both builds wipe their destination before they copy, and
@@ -18,9 +18,9 @@ const config = {
     plugins: [react()],
     resolve: {
         alias: {
-            '@energyflow/core': `${packages}/core/src/index.ts`,
-            '@energyflow/editor': `${packages}/editor/src/index.ts`,
-            '@energyflow/i18n': `${packages}/i18n/src/index.ts`,
+            '@flow/core': `${packages}/core/src/index.ts`,
+            '@flow/editor': `${packages}/editor/src/index.ts`,
+            '@flow/i18n': `${packages}/i18n/src/index.ts`,
         },
         dedupe: ['react', 'react-dom', '@emotion/react', '@mui/material', '@mui/system', '@mui/icons-material'],
     },

@@ -17,6 +17,8 @@ import {
     DEFAULT_LINE_WIDTH,
     DEFAULT_THRESHOLD,
     iconPlacement,
+    MEDIA,
+    MEDIUM_IDS,
     nodeRect,
     nodeShape,
     pageLabelSize,
@@ -32,7 +34,7 @@ import {
     updateNode,
     type EdgeCurve,
     type EdgeMode,
-    type EnergyFlowConfig,
+    type FlowConfig,
     type FlowEdge,
     type FlowNode,
     type NodeKind,
@@ -40,10 +42,11 @@ import {
     type Side,
     type TimestampFormat,
     type UnitGetter,
-} from '@energyflow/core';
+} from '@flow/core';
 
 import { CheckRow, ColorRow, NumberField, Row, Section, SelectRow, TextFieldRow } from './fields';
-import { SourceField } from './SourceField';
+import { kindLabel } from './labels';
+import { StateIdRow, SourceField } from './SourceField';
 import { IconPickerDialog, IconPreview } from './IconPicker';
 import { IS_MAC } from './selection';
 import { useIsRecorded } from './useHistory';
@@ -61,9 +64,9 @@ import {
 import type { EditorContext, EditorSelection } from './types';
 
 export interface InspectorProps {
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     selection: EditorSelection;
-    onChange: (config: EnergyFlowConfig) => void;
+    onChange: (config: FlowConfig) => void;
     onSelect: (selection: EditorSelection) => void;
     context: EditorContext;
     /** Accent colour the selected node would have without an override, for the previews */
@@ -172,7 +175,7 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                     value={node.kind}
                     options={NODE_KINDS.map(kind => ({
                         value: kind,
-                        label: context.t(`kind_${kind}`),
+                        label: kindLabel(kind, config, context.t),
                         icon: KIND_ICONS[kind],
                     }))}
                     onChange={kind => patch({ kind })}
@@ -589,9 +592,10 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                         (node.action.type === 'toggle' ||
                             node.action.type === 'setValue' ||
                             node.action.type === 'chart') ? (
-                            <TextFieldRow
+                            <StateIdRow
                                 label={context.t('insp_action_oid')}
                                 value={node.action.oid}
+                                context={context}
                                 // The detail view needs no state of its own: it shows the value's
                                 placeholder={
                                     node.action.type === 'chart' ? context.t('insp_action_oid_value') : undefined
@@ -875,10 +879,10 @@ function CanvasPanel(props: InspectorProps): React.JSX.Element {
     const { config, onChange, context } = props;
     const animation = { ...DEFAULT_ANIMATION, ...(config.defaults?.animation || {}) };
 
-    const patchCanvas = (values: Partial<EnergyFlowConfig['canvas']>): void =>
+    const patchCanvas = (values: Partial<FlowConfig['canvas']>): void =>
         onChange({ ...config, canvas: { ...config.canvas, ...values } });
 
-    const patchDefaults = (values: Partial<NonNullable<EnergyFlowConfig['defaults']>>): void =>
+    const patchDefaults = (values: Partial<NonNullable<FlowConfig['defaults']>>): void =>
         onChange({ ...config, defaults: { ...config.defaults, ...values } });
 
     const patchAnimation = (values: Partial<typeof animation>): void =>
@@ -948,6 +952,30 @@ function CanvasPanel(props: InspectorProps): React.JSX.Element {
             </Section>
 
             <Section title={context.t('insp_defaults')}>
+                <SelectRow
+                    label={context.t('insp_medium')}
+                    value={config.defaults?.medium || 'energy'}
+                    options={MEDIUM_IDS.map(id => ({ value: id, label: context.t(MEDIA[id].label) }))}
+                    // Picking a medium is picking its unit and its dot speed -- the two numbers a
+                    // user would otherwise have to know. Both stay editable right below.
+                    onChange={id =>
+                        patchDefaults({
+                            medium: id === 'energy' ? undefined : id,
+                            unit: MEDIA[id].unit,
+                            animation: {
+                                ...config.defaults?.animation,
+                                refPower: MEDIA[id].refValue,
+                            },
+                        })
+                    }
+                />
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', mb: 1 }}
+                >
+                    {context.t('insp_medium_hint')}
+                </Typography>
                 <Row>
                     <TextFieldRow
                         label={context.t('insp_unit')}
@@ -982,6 +1010,15 @@ function CanvasPanel(props: InspectorProps): React.JSX.Element {
                         onChange={fontSize => patchDefaults({ fontSize })}
                     />
                 </Row>
+                <SelectRow
+                    label={context.t('insp_edge_label')}
+                    value={config.defaults?.edgeLabel || 'beside'}
+                    options={(['beside', 'chip'] as const).map(value => ({
+                        value,
+                        label: context.t(`edge_label_${value}`),
+                    }))}
+                    onChange={edgeLabel => patchDefaults({ edgeLabel: edgeLabel === 'chip' ? 'chip' : undefined })}
+                />
                 <NumberField
                     label={context.t('insp_label_size')}
                     value={config.defaults?.labelSize}

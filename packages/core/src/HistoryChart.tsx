@@ -9,14 +9,14 @@ import React from 'react';
 
 import { formatNumber, formatValue } from './format';
 import type { HistoryPoint } from './history';
-import { withAlpha, type EnergyFlowTheme } from './theme';
+import { withAlpha, type FlowTheme } from './theme';
 
 export interface HistoryChartProps {
     points: HistoryPoint[];
     start: number;
     end: number;
     color: string;
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     unit?: string;
     /** Width and height of the drawing, in pixels */
     width?: number;

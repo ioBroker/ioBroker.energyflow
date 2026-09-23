@@ -8,13 +8,7 @@
 import React from 'react';
 import type { Connection } from '@iobroker/gui-components';
 
-import {
-    diagramPrefix,
-    newDiagramId,
-    parseStoredDiagram,
-    serializeDiagram,
-    type EnergyFlowConfig,
-} from '@energyflow/core';
+import { diagramPrefix, newDiagramId, parseStoredDiagram, serializeDiagram, type FlowConfig } from '@flow/core';
 
 /**
  * The ioBroker convention for "the end of this key range" in an object view: U+9999 sorts after every
@@ -63,7 +57,7 @@ export async function listDiagrams(socket: Connection, instance = 0): Promise<St
  * @param id full state id
  * @returns the diagram, or null if the state is empty or missing
  */
-export async function loadDiagram(socket: Connection, id: string): Promise<EnergyFlowConfig | null> {
+export async function loadDiagram(socket: Connection, id: string): Promise<FlowConfig | null> {
     const state = await socket.getState(id);
     return parseStoredDiagram(state?.val);
 }
@@ -79,7 +73,7 @@ export async function loadDiagram(socket: Connection, id: string): Promise<Energ
  * @param id full state id
  * @param config the diagram
  */
-export async function saveDiagram(socket: Connection, id: string, config: EnergyFlowConfig): Promise<void> {
+export async function saveDiagram(socket: Connection, id: string, config: FlowConfig): Promise<void> {
     await socket.setState(id, { val: serializeDiagram(config), ack: true });
 }
 
@@ -95,7 +89,7 @@ export async function saveDiagram(socket: Connection, id: string, config: Energy
 export async function createDiagram(
     socket: Connection,
     name: string,
-    config: EnergyFlowConfig,
+    config: FlowConfig,
     instance = 0,
 ): Promise<string> {
     const existing = await listDiagrams(socket, instance);
@@ -113,7 +107,7 @@ export async function createDiagram(
             role: 'json',
             read: true,
             write: true,
-            desc: 'Energy flow diagram, edited in the admin tab "Energy flow"',
+            desc: 'Flow diagram, edited in the admin tab "Flow"',
         },
         native: {},
     });
@@ -172,7 +166,7 @@ export function useStoredDiagrams(
                 }
             })
             .catch((error: unknown) => {
-                console.warn(`energyflow: cannot list diagrams: ${String(error)}`);
+                console.warn(`flow: cannot list diagrams: ${String(error)}`);
                 if (!cancelled) {
                     setLoading(false);
                 }

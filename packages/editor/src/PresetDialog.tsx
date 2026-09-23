@@ -7,14 +7,7 @@
 import React from 'react';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Typography } from '@mui/material';
 
-import {
-    buildPreset,
-    computeRuntime,
-    EnergyFlowView,
-    PRESETS,
-    type EnergyFlowConfig,
-    type EnergyFlowTheme,
-} from '@energyflow/core';
+import { buildPreset, computeRuntime, FlowView, PRESETS, type FlowConfig, type FlowTheme } from '@flow/core';
 
 import type { EditorContext } from './types';
 import { AutoFixHigh } from '@mui/icons-material';
@@ -22,9 +15,9 @@ import { AutoFixHigh } from '@mui/icons-material';
 export interface PresetDialogProps {
     open: boolean;
     onClose: () => void;
-    onPick: (config: EnergyFlowConfig) => void;
+    onPick: (config: FlowConfig) => void;
     context: EditorContext;
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     /** Warn that the current diagram will be replaced */
     hasContent: boolean;
     /** Open the assistant that builds a diagram from the installation's states */
@@ -85,7 +78,7 @@ export function PresetDialog(props: PresetDialogProps): React.JSX.Element {
                         >
                             <Box sx={{ height: 150, mb: 1 }}>
                                 {config.nodes.length ? (
-                                    <EnergyFlowView
+                                    <FlowView
                                         runtime={runtime}
                                         theme={theme}
                                         animate={false}

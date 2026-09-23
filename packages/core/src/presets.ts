@@ -11,10 +11,18 @@
  * two signed. A diagram that asks for "grid import" and "grid feed-in" separately is asking the user
  * to solve a problem the `signed` edge mode already solves.
  */
-import type { EnergyFlowConfig, FlowEdge, FlowNode } from './types';
+import { MEDIA, type MediumId } from './media';
+import type { FlowConfig, FlowEdge, FlowNode } from './types';
 
 export type PresetId =
-    'pv-home' | 'pv-battery-home' | 'pv-battery-wallbox' | 'pv-battery-heating' | 'grid-home' | 'empty';
+    | 'pv-home'
+    | 'pv-battery-home'
+    | 'pv-battery-wallbox'
+    | 'pv-battery-heating'
+    | 'grid-home'
+    | 'water-house'
+    | 'water-cistern'
+    | 'empty';
 
 export interface PresetInfo {
     id: PresetId;
@@ -22,26 +30,60 @@ export interface PresetInfo {
     label: string;
     /** i18n key of the one-line description */
     description: string;
+    /** What flows through it; the designer offers the ones of the diagram's medium first */
+    medium: MediumId;
 }
 
 export const PRESETS: PresetInfo[] = [
-    { id: 'pv-battery-home', label: 'preset_pv_battery_home', description: 'preset_pv_battery_home_desc' },
-    { id: 'pv-home', label: 'preset_pv_home', description: 'preset_pv_home_desc' },
-    { id: 'pv-battery-wallbox', label: 'preset_pv_battery_wallbox', description: 'preset_pv_battery_wallbox_desc' },
-    { id: 'pv-battery-heating', label: 'preset_pv_battery_heating', description: 'preset_pv_battery_heating_desc' },
-    { id: 'grid-home', label: 'preset_grid_home', description: 'preset_grid_home_desc' },
-    { id: 'empty', label: 'preset_empty', description: 'preset_empty_desc' },
+    {
+        id: 'pv-battery-home',
+        label: 'preset_pv_battery_home',
+        description: 'preset_pv_battery_home_desc',
+        medium: 'energy',
+    },
+    { id: 'pv-home', label: 'preset_pv_home', description: 'preset_pv_home_desc', medium: 'energy' },
+    {
+        id: 'pv-battery-wallbox',
+        label: 'preset_pv_battery_wallbox',
+        description: 'preset_pv_battery_wallbox_desc',
+        medium: 'energy',
+    },
+    {
+        id: 'pv-battery-heating',
+        label: 'preset_pv_battery_heating',
+        description: 'preset_pv_battery_heating_desc',
+        medium: 'energy',
+    },
+    { id: 'grid-home', label: 'preset_grid_home', description: 'preset_grid_home_desc', medium: 'energy' },
+    { id: 'water-house', label: 'preset_water_house', description: 'preset_water_house_desc', medium: 'water' },
+    {
+        id: 'water-cistern',
+        label: 'preset_water_cistern',
+        description: 'preset_water_cistern_desc',
+        medium: 'water',
+    },
+    { id: 'empty', label: 'preset_empty', description: 'preset_empty_desc', medium: 'energy' },
 ];
 
 /** Translates an i18n key; the editor passes the host's `I18n.t` */
 export type Translator = (key: string) => string;
 
 /** Watts, because that is what virtually every inverter and meter adapter in ioBroker reports */
-const BASE_DEFAULTS: EnergyFlowConfig['defaults'] = {
+const BASE_DEFAULTS: FlowConfig['defaults'] = {
     unit: 'W',
     lineWidth: 3,
     fontSize: 17,
 };
+
+/** The same, for a diagram that carries something else: the unit and the dot speed of that medium */
+function defaultsOf(medium: MediumId): FlowConfig['defaults'] {
+    return {
+        ...BASE_DEFAULTS,
+        medium,
+        unit: MEDIA[medium].unit,
+        animation: { refPower: MEDIA[medium].refValue },
+    };
+}
 
 function node(partial: FlowNode): FlowNode {
     return partial;
@@ -61,7 +103,7 @@ function edge(partial: FlowEdge): FlowEdge {
  * @param t translates the node labels
  * @returns a complete, valid document
  */
-export function buildPreset(id: PresetId, t: Translator): EnergyFlowConfig {
+export function buildPreset(id: PresetId, t: Translator): FlowConfig {
     switch (id) {
         case 'pv-home':
             return {
@@ -180,6 +222,84 @@ export function buildPreset(id: PresetId, t: Translator): EnergyFlowConfig {
                     edge({ id: 'battery-bus', from: 'battery', to: 'bus', value: { oid: '' }, mode: 'signed' }),
                     edge({ id: 'bus-home', from: 'bus', to: 'home', value: { oid: '' }, mode: 'positive' }),
                     edge({ id: 'bus-heatpump', from: 'bus', to: 'heatpump', value: { oid: '' }, mode: 'positive' }),
+                ],
+            };
+
+        case 'water-house':
+            return {
+                v: 1,
+                canvas: { w: 860, h: 470, grid: 10 },
+                defaults: defaultsOf('water'),
+                nodes: [
+                    node({
+                        id: 'meter',
+                        kind: 'grid',
+                        x: 160,
+                        y: 235,
+                        icon: 'watermeter',
+                        label: t('node_water_meter'),
+                    }),
+                    node({ id: 'home', kind: 'sink', x: 470, y: 235, icon: 'house', label: t('node_home') }),
+                    node({ id: 'bath', kind: 'sink', x: 740, y: 120, icon: 'shower', label: t('node_bath') }),
+                    node({ id: 'garden', kind: 'sink', x: 740, y: 350, icon: 'sprinkler', label: t('node_garden') }),
+                ],
+                edges: [
+                    edge({ id: 'meter-home', from: 'meter', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'home-bath', from: 'home', to: 'bath', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'home-garden', from: 'home', to: 'garden', value: { oid: '' }, mode: 'positive' }),
+                ],
+            };
+
+        case 'water-cistern':
+            return {
+                v: 1,
+                canvas: { w: 900, h: 560, grid: 10 },
+                defaults: defaultsOf('water'),
+                nodes: [
+                    node({ id: 'rain', kind: 'source', x: 200, y: 120, icon: 'rain', label: t('node_rain') }),
+                    node({
+                        id: 'cistern',
+                        kind: 'storage',
+                        x: 450,
+                        y: 300,
+                        icon: 'cistern',
+                        label: t('node_cistern'),
+                        // A cistern shows how full it is, which is the number its sensor reports
+                        soc: { oid: '' },
+                    }),
+                    node({
+                        id: 'meter',
+                        kind: 'grid',
+                        x: 200,
+                        y: 480,
+                        icon: 'watermeter',
+                        label: t('node_water_meter'),
+                    }),
+                    node({ id: 'home', kind: 'sink', x: 760, y: 180, icon: 'house', label: t('node_home') }),
+                    node({ id: 'garden', kind: 'sink', x: 760, y: 430, icon: 'sprinkler', label: t('node_garden') }),
+                ],
+                edges: [
+                    edge({ id: 'rain-cistern', from: 'rain', to: 'cistern', value: { oid: '' }, mode: 'positive' }),
+                    // Around the cistern, not through it: the mains reach the house on their own
+                    edge({
+                        id: 'meter-home',
+                        from: 'meter',
+                        to: 'home',
+                        value: { oid: '' },
+                        mode: 'positive',
+                        curve: 'orthogonal',
+                        fromSide: 'right',
+                        toSide: 'left',
+                        bend: 0.85,
+                    }),
+                    edge({ id: 'cistern-home', from: 'cistern', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({
+                        id: 'cistern-garden',
+                        from: 'cistern',
+                        to: 'garden',
+                        value: { oid: '' },
+                        mode: 'positive',
+                    }),
                 ],
             };
 

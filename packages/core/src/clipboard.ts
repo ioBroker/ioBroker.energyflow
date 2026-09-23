@@ -9,10 +9,10 @@
  */
 import { normalizeConfig } from './defaults';
 import { allIds, snap, uniqueId } from './model';
-import type { EnergyFlowConfig, FlowEdge, FlowNode, Point } from './types';
+import type { FlowConfig, FlowEdge, FlowNode, Point } from './types';
 
 /** Marks clipboard text as nodes of this widget */
-export const CLIPBOARD_FORMAT = 'iobroker.energyflow/nodes';
+export const CLIPBOARD_FORMAT = 'iobroker.flow/nodes';
 
 export interface NodeClipboard {
     format: typeof CLIPBOARD_FORMAT;
@@ -32,7 +32,7 @@ const PASTE_MIN_STEP = 20;
  * @param ids the nodes to copy; unknown ids are ignored
  * @returns what to put on the clipboard, or null when none of the ids exists
  */
-export function copyNodes(config: EnergyFlowConfig, ids: string[]): NodeClipboard | null {
+export function copyNodes(config: FlowConfig, ids: string[]): NodeClipboard | null {
     const wanted = new Set(ids);
     const nodes = config.nodes.filter(node => wanted.has(node.id));
     if (!nodes.length) {
@@ -82,10 +82,7 @@ export function parseClipboard(text: string): NodeClipboard | null {
  * @param clipboard what was copied
  * @returns the new document and the ids of the pasted nodes, to select them
  */
-export function pasteNodes(
-    config: EnergyFlowConfig,
-    clipboard: NodeClipboard,
-): { config: EnergyFlowConfig; ids: string[] } {
+export function pasteNodes(config: FlowConfig, clipboard: NodeClipboard): { config: FlowConfig; ids: string[] } {
     const grid = config.canvas.grid;
     const step = grid && grid > 0 ? grid * Math.max(1, Math.ceil(PASTE_MIN_STEP / grid)) : PASTE_MIN_STEP;
 

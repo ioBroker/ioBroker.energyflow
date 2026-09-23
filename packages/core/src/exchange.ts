@@ -14,17 +14,17 @@
  */
 import { normalizeConfig } from './defaults';
 import { importEnergiefluss, isEnergiefluss, type ImportResult, type ImportWarning } from './importEnergiefluss';
-import type { EnergyFlowConfig } from './types';
+import type { FlowConfig } from './types';
 
 /** Marks a bundle file; checked on import, so no other JSON is mistaken for one */
-export const BUNDLE_FORMAT = 'iobroker.energyflow/diagrams';
+export const BUNDLE_FORMAT = 'iobroker.flow/diagrams';
 
 export interface DiagramBundle {
     format: typeof BUNDLE_FORMAT;
     v: 1;
     /** ISO timestamp, for the person looking at a folder of backups */
     exported: string;
-    diagrams: { name: string; config: EnergyFlowConfig }[];
+    diagrams: { name: string; config: FlowConfig }[];
 }
 
 /**
@@ -34,7 +34,7 @@ export interface DiagramBundle {
  * @param now when the export happened
  * @returns the bundle, ready for `JSON.stringify`
  */
-export function createBundle(diagrams: { name: string; config: EnergyFlowConfig }[], now = new Date()): DiagramBundle {
+export function createBundle(diagrams: { name: string; config: FlowConfig }[], now = new Date()): DiagramBundle {
     return { format: BUNDLE_FORMAT, v: 1, exported: now.toISOString(), diagrams };
 }
 
@@ -50,7 +50,7 @@ export function isBundle(value: unknown): value is DiagramBundle {
 /** One diagram found in an imported file */
 export interface ImportItem {
     name: string;
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     /** Where it came from; decides what the summary says about it */
     source: 'diagram' | 'bundle' | 'energiefluss';
     /** What a conversion could not carry over -- only ever set for `energiefluss` */
@@ -138,7 +138,7 @@ export function readImport(text: string, fallbackName: string): ImportResultOrEr
 
     // Our own format has to show at least its `nodes` array. Anything laxer would accept any JSON file
     // as an empty diagram -- which is how a wrong file ends up replacing a real one without a word
-    const rawNodes = (value as EnergyFlowConfig).nodes;
+    const rawNodes = (value as FlowConfig).nodes;
     if (Array.isArray(rawNodes)) {
         const config = normalizeConfig(value);
         // Nodes were there and none survived: every one lacked an id. Importing that as an empty

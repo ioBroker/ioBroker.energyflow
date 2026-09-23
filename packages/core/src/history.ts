@@ -7,7 +7,8 @@
  */
 import { sourceUnit, type UnitGetter } from './units';
 import { resolveSrc } from './values';
-import { isSrcState, type EnergyFlowConfig, type FlowNode, type HistoryPeriod, type Rect } from './types';
+import { integralSeconds } from './format';
+import { isSrcState, type FlowConfig, type FlowNode, type HistoryPeriod, type Rect } from './types';
 
 /** Length of each period in ms */
 export const HISTORY_PERIODS: Record<HistoryPeriod, number> = {
@@ -58,7 +59,7 @@ export interface HistoryRequest {
  * @param config the diagram
  * @returns the state and period of every node with a chart, without duplicates
  */
-export function historyRequests(config: EnergyFlowConfig): HistoryRequest[] {
+export function historyRequests(config: FlowConfig): HistoryRequest[] {
     const seen = new Set<string>();
     const requests: HistoryRequest[] = [];
     for (const node of config.nodes || []) {
@@ -205,20 +206,33 @@ const ENERGY_REFRESH_MS = 5 * 60000;
 
 const energyCache = new Map<string, { at: number; day: number; value: number | null }>();
 
+/** A state whose amount of the day the history adapter has to integrate, and over what */
+export interface EnergyRequest {
+    oid: string;
+    /** Seconds the flow is integrated over: 3600 for a power, 60 for `l/min` -- see `integralSeconds` */
+    seconds: number;
+}
+
 /**
- * The states whose energy of today the diagram shows.
+ * The states whose amount of today the diagram shows.
+ *
+ * The time base comes from the unit the node is shown in, which is why it is collected here and not
+ * assumed to be an hour: `l/min` counted over hours would be off by sixty.
  *
  * @param config the diagram
- * @returns their ids, without duplicates
+ * @param units the units of the state objects, for a node that has none of its own
+ * @returns one request per state, without duplicates
  */
-export function energyRequests(config: EnergyFlowConfig): string[] {
-    const ids = new Set<string>();
+export function energyRequests(config: FlowConfig, units?: UnitGetter): EnergyRequest[] {
+    const found = new Map<string, EnergyRequest>();
     for (const node of config.nodes || []) {
-        if (node.energyToday && node.value && isSrcState(node.value) && node.value.oid) {
-            ids.add(node.value.oid);
+        // A node that counts the day itself needs nothing from the history adapter
+        if (node.energyToday && !node.energyToday.src && node.value && isSrcState(node.value) && node.value.oid) {
+            const unit = node.unit || sourceUnit(node.value, units) || config.defaults?.unit;
+            found.set(node.value.oid, { oid: node.value.oid, seconds: integralSeconds(unit) });
         }
     }
-    return [...ids];
+    return [...found.values()];
 }
 
 /** Local midnight of the day `now` falls in */
@@ -229,19 +243,23 @@ function startOfDay(now: number): number {
 }
 
 /**
- * Read today's energy of power states: the history adapter integrates since midnight, which needs no
+ * Read today's amount of the flows: the history adapter integrates since midnight, which needs no
  * counter state of its own -- the reason most setups have a daily kWh only for the PV.
  *
- * @param oids the power states
+ * @param requests the states and their time base, from `energyRequests`
  * @param read how to read history
  * @param now the present
  * @returns whether anything new arrived
  */
-export async function loadEnergyToday(oids: string[], read: HistoryReader, now = Date.now()): Promise<boolean> {
+export async function loadEnergyToday(
+    requests: EnergyRequest[],
+    read: HistoryReader,
+    now = Date.now(),
+): Promise<boolean> {
     const day = startOfDay(now);
     let changed = false;
     await Promise.all(
-        oids.map(oid => {
+        requests.map(({ oid, seconds }) => {
             const known = energyCache.get(oid);
             if (known && known.day === day && now - known.at < ENERGY_REFRESH_MS) {
                 return Promise.resolve();
@@ -251,7 +269,7 @@ export async function loadEnergyToday(oids: string[], read: HistoryReader, now =
                 end: now,
                 step: Math.max(now - day, 60000),
                 aggregate: 'integral',
-                integralUnit: 3600,
+                integralUnit: seconds,
             }).then(
                 result => {
                     const points = historyPoints(result);
@@ -269,7 +287,8 @@ export async function loadEnergyToday(oids: string[], read: HistoryReader, now =
 }
 
 /**
- * Today's energy of a power state, in the state's unit times hours (Wh for W); undefined while unknown.
+ * Today's amount of a state, in the state's own amount unit (Wh for W, litres for l/min); undefined
+ * while unknown.
  *
  * @param oid the state
  * @returns the energy
@@ -297,7 +316,7 @@ export interface DetailTarget {
  * @param units the units of the state objects
  * @returns the target, or null when the node has no state to chart
  */
-export function detailTarget(node: FlowNode, config: EnergyFlowConfig, units?: UnitGetter): DetailTarget | null {
+export function detailTarget(node: FlowNode, config: FlowConfig, units?: UnitGetter): DetailTarget | null {
     const valueOid = node.value && isSrcState(node.value) ? node.value.oid : undefined;
     const oid = node.action?.oid || valueOid;
     if (!oid) {

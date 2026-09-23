@@ -332,3 +332,38 @@ export function fitFontSize(text: string, size: number, room: number, bold: bool
     const width = textWidth(text, size, bold);
     return width <= room ? size : Math.max((size * room) / width, size * 0.5);
 }
+
+/**
+ * How long a flow in this unit has to be integrated to give an amount, in seconds.
+ *
+ * A flow says its own time base: `l/min` integrated over minutes gives litres, `m3/h` over hours
+ * gives cubic metres. A unit without one is a power -- `W`, `kW`, `VA` -- and those are counted in
+ * hours, because that is what `Wh` means. Getting this wrong is not a rounding error: litres out of
+ * `l/min` integrated over an hour are off by sixty.
+ *
+ * @param unit the unit of the flow
+ * @returns the number of seconds, 3600 when the unit says nothing
+ */
+export function integralSeconds(unit: string | undefined): number {
+    const per = /\/\s*(s|sec|min|h|hour)\b/i.exec(unit || '');
+    if (!per) {
+        return 3600;
+    }
+    const time = per[1].toLowerCase();
+    return time.startsWith('s') ? 1 : time === 'min' ? 60 : 3600;
+}
+
+/**
+ * The unit of the amount that flow adds up to: `W` becomes `Wh`, `l/min` becomes `l`, `m3/h`
+ * becomes `m3`.
+ *
+ * @param unit the unit of the flow
+ * @returns the unit of the amount
+ */
+export function amountUnit(unit: string | undefined): string {
+    if (!unit) {
+        return '';
+    }
+    const per = unit.indexOf('/');
+    return per === -1 ? `${unit}h` : unit.slice(0, per).trim();
+}

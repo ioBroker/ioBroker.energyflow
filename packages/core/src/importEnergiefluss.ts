@@ -15,7 +15,7 @@
  */
 import { DEFAULT_CANVAS } from './defaults';
 import { isSrcExpr, isSrcState } from './types';
-import type { EnergyFlowConfig, FlowEdge, FlowNode, NodeKind, Point, Rect, Side, Src } from './types';
+import type { FlowConfig, FlowEdge, FlowNode, NodeKind, Point, Rect, Side, Src } from './types';
 
 // ---------------------------------------------------------------------------
 // The shape of the source document
@@ -127,7 +127,7 @@ export interface ImportWarning {
 }
 
 export interface ImportResult {
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     warnings: ImportWarning[];
     stats: {
         nodes: number;
@@ -191,6 +191,32 @@ const ICON_PATTERNS: { pattern: RegExp; icon: string }[] = [
     { pattern: /ev-station|ev-plug|charging-station|wallbox/, icon: 'wallbox' },
     { pattern: /(^|-)car($|-)/, icon: 'car' },
     { pattern: /heat-?pump/, icon: 'heatpump' },
+    // Before the generic water and house rules below, which would otherwise swallow them
+    { pattern: /boiler|water-heater|warmwasser/, icon: 'boiler' },
+    { pattern: /well|brunnen|spring/, icon: 'well' },
+    { pattern: /rain|regen|weather-pouring/, icon: 'rain' },
+    { pattern: /cistern|zisterne|(^|-)tank($|-)/, icon: 'cistern' },
+    { pattern: /water-meter|wasserz/, icon: 'watermeter' },
+    { pattern: /valve|ventil|faucet-variant/, icon: 'valve' },
+    { pattern: /sprinkler|irrigation|bew\u00e4sser/, icon: 'sprinkler' },
+    { pattern: /filter/, icon: 'filter' },
+    { pattern: /shower|dusche/, icon: 'shower' },
+    { pattern: /faucet|(^|-)tap($|-)|wasserhahn/, icon: 'tap' },
+    { pattern: /buffer|heat-storage|puffer/, icon: 'heatstorage' },
+    { pattern: /hydro|water-wheel|water-turbine/, icon: 'hydro' },
+    { pattern: /pump/, icon: 'waterpump' },
+    { pattern: /consumer|consumption|verbrauch/, icon: 'consumers' },
+    { pattern: /microwave/, icon: 'microwave' },
+    { pattern: /(^|-)oven($|-)|backofen/, icon: 'oven' },
+    { pattern: /dishwasher|geschirr/, icon: 'dishwasher' },
+    { pattern: /dryer|tumble|trockner/, icon: 'dryer' },
+    { pattern: /coffee|espresso|kettle/, icon: 'coffee' },
+    { pattern: /freezer|snowflake/, icon: 'freezer' },
+    { pattern: /television|(^|-)tv($|-)|monitor/, icon: 'tv' },
+    { pattern: /air-condition|climate|klima/, icon: 'ac' },
+    { pattern: /ventilation|hvac|air-filter/, icon: 'ventilation' },
+    { pattern: /(^|-)fan($|-)|ventilator|propeller/, icon: 'fan' },
+    { pattern: /heater|infrared|radiant/, icon: 'heater' },
     { pattern: /radiator|heating/, icon: 'radiator' },
     { pattern: /water|boiler|shower|faucet/, icon: 'water' },
     { pattern: /light|lamp|bulb/, icon: 'light' },
@@ -729,7 +755,7 @@ export function importEnergiefluss(raw: unknown): ImportResult {
         edges.push(edge);
     }
 
-    const config: EnergyFlowConfig = {
+    const config: FlowConfig = {
         v: 1,
         canvas: {
             w: Math.round(document.basic?.width || DEFAULT_CANVAS.w),

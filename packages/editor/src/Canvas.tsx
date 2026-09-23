@@ -1,7 +1,7 @@
 /**
  * The editing surface.
  *
- * It renders the very same {@link EnergyFlowView} the widget renders at runtime, with live state
+ * It renders the very same {@link FlowView} the widget renders at runtime, with live state
  * values, and puts a transparent interaction layer on top. That is the whole reason there is no
  * graph-editor library here: a library draws the diagram *its* way, and then what the user arranges
  * in the editor is not quite what appears in the view. Here there is only one renderer, so the
@@ -25,24 +25,24 @@ import {
     cachedMax,
     snap,
     updateEdge,
-    EnergyFlowView,
-    type EnergyFlowConfig,
+    FlowView,
+    type FlowConfig,
     type EdgeSegment,
-    type EnergyFlowTheme,
+    type FlowTheme,
     type FlowNode,
     type Point,
     type HistoryGetter,
     type TimeGetter,
     type UnitGetter,
     type ValueGetter,
-} from '@energyflow/core';
+} from '@flow/core';
 
 import { sameNodes, selectedNodeIds, selectNodes } from './selection';
 import type { EditorSelection } from './types';
 
 export interface CanvasProps {
-    config: EnergyFlowConfig;
-    theme: EnergyFlowTheme;
+    config: FlowConfig;
+    theme: FlowTheme;
     /** Live values, so the designer shows the real diagram while it is being built */
     values: ValueGetter;
     /** Units of the states, from their objects */
@@ -63,7 +63,7 @@ export interface CanvasProps {
      * @param config the new document
      * @param transient true while a gesture is still running -- do not push an undo entry yet
      */
-    onChange: (config: EnergyFlowConfig, transient?: boolean) => void;
+    onChange: (config: FlowConfig, transient?: boolean) => void;
     showGrid: boolean;
     animate: boolean;
 }
@@ -78,7 +78,7 @@ type Gesture =
           /** Where the gesture started, in canvas units */
           origin: Point;
           /** The document before the gesture, so every move is computed from the same base */
-          base: EnergyFlowConfig;
+          base: FlowConfig;
           /** Whether the pointer travelled far enough to count as a drag rather than a click */
           moved: boolean;
           /**
@@ -94,7 +94,7 @@ type Gesture =
           edgeId: string;
           /** The segment as it was when the drag started; its ends do not move during the drag */
           segment: EdgeSegment;
-          base: EnergyFlowConfig;
+          base: FlowConfig;
           moved: boolean;
       }
     | {
@@ -144,7 +144,7 @@ function spanRect(a: Point, b: Point): { x: number; y: number; w: number; h: num
 }
 
 /** The topmost node under a point, or null. Later nodes are drawn on top, so search backwards. */
-function nodeAt(config: EnergyFlowConfig, point: Point): FlowNode | null {
+function nodeAt(config: FlowConfig, point: Point): FlowNode | null {
     for (let i = config.nodes.length - 1; i >= 0; i--) {
         const rect = nodeRect(config.nodes[i]);
         if (point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h) {
@@ -554,7 +554,7 @@ export function Canvas(props: CanvasProps): React.JSX.Element {
     );
 
     return (
-        <EnergyFlowView
+        <FlowView
             runtime={runtime}
             theme={theme}
             animate={animate}

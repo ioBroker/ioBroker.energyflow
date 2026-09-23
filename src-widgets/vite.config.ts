@@ -28,10 +28,10 @@ const config = {
     plugins: [
         federation({
             manifest: true,
-            name: 'energyflowWidgets',
+            name: 'flowWidgets',
             filename: 'customWidgets.js',
             exposes: {
-                './EnergyFlow': './src/EnergyFlow',
+                './Flow': './src/Flow',
                 './translations': './src/translations',
             },
             remotes: {},
@@ -42,9 +42,9 @@ const config = {
     ],
     resolve: {
         alias: {
-            '@energyflow/core': `${packages}/core/src/index.ts`,
-            '@energyflow/editor': `${packages}/editor/src/index.ts`,
-            '@energyflow/i18n': `${packages}/i18n/src/index.ts`,
+            '@flow/core': `${packages}/core/src/index.ts`,
+            '@flow/editor': `${packages}/editor/src/index.ts`,
+            '@flow/i18n': `${packages}/i18n/src/index.ts`,
         },
         // The fallback copies inside the bundle must be unique too, or MUI ends up with two themes
         dedupe: ['react', 'react-dom', '@emotion/react', '@mui/material', '@mui/system', '@mui/icons-material'],

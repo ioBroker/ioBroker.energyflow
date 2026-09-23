@@ -1,17 +1,18 @@
-![Logo](admin/energyflow.svg)
+![Logo](admin/flow.svg)
 
-# ioBroker.energyflow
+# ioBroker.flow
 
-[![NPM version](https://img.shields.io/npm/v/iobroker.energyflow.svg)](https://www.npmjs.com/package/iobroker.energyflow)
-[![Downloads](https://img.shields.io/npm/dm/iobroker.energyflow.svg)](https://www.npmjs.com/package/iobroker.energyflow)
-[![License](https://img.shields.io/github/license/ioBroker/ioBroker.energyflow)](LICENSE)
+[![NPM version](https://img.shields.io/npm/v/iobroker.flow.svg)](https://www.npmjs.com/package/iobroker.flow)
+[![Downloads](https://img.shields.io/npm/dm/iobroker.flow.svg)](https://www.npmjs.com/package/iobroker.flow)
+[![License](https://img.shields.io/github/license/ioBroker/ioBroker.flow)](LICENSE)
 
-A freely arrangeable, animated energy flow diagram — usable in **ioBroker.vis-2** and in the
-**ioBroker.devices** widget manager, from the same configuration, with the same designer.
+A freely arrangeable, animated flow diagram — usable in **ioBroker.vis-2** and in the
+**ioBroker.devices** widget manager, from the same configuration, with the same designer. Energy is
+what it was built for; water, gas and heat flow through the same lines.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="src-widgets/public/img/prev_hybrid-12v-dark.svg">
-  <img alt="Energy flow of a 12 V hybrid installation" src="src-widgets/public/img/prev_hybrid-12v.svg">
+  <img alt="Flow of a 12 V hybrid installation" src="src-widgets/public/img/prev_hybrid-12v.svg">
 </picture>
 
 *A real installation — four MPPT chargers, a 12 V battery bank, a DC branch, an inverter, grid and
@@ -43,12 +44,25 @@ that move faster the more power there is.
   battery icon at that level.
 - **Values that fit.** A value too long for its box — "-1.800,00 W" in a small one — is set smaller
   instead of running over the edge.
+- **Energy, water, gas or heat.** One setting says what flows, and with it come the unit, the speed
+  of the dots, the words in the designer ("source" instead of "producer") and the templates: a water
+  meter with house and garden, or rain water in a cistern beside the mains. Everything it sets stays
+  editable, and a diagram that says nothing is an energy diagram — as every one written so far is.
+- **Values on the lines, your way.** Next to the line, or in a rounded chip sitting on it — one
+  setting for the whole diagram.
+- **Icons for what is actually in a house.** Around forty drawn ones: photovoltaics, wind, water
+  power, battery and heat store, grid, meter, wallbox and car, heat pump, radiator, electric heater,
+  air conditioner, ventilation, fan, water pump, water heater, washing machine, dishwasher, tumble
+  dryer, fridge, freezer, oven, cooktop, microwave, coffee machine, TV, server, pool, light — plus
+  "all consumers" for the sum of a house. Any image of your own works too (URL or data URI).
 - **Rules.** "Below 20 % red and blinking", "status Error in red": colour, icon and blinking follow the
   value; the first rule that matches wins, and the lines take the colour along.
 - **Status texts.** A state such as an inverter mode is shown as text, optionally translated
   (`1` → "Charging").
 - **Stale values are visible.** A node whose state has not been updated for a set time is dimmed — an
   adapter that hangs no longer looks like a quiet house.
+- **Energy of the day.** Under the value, either read from a counter of the device — the "yield
+  today" of an inverter — or integrated from the history adapter since midnight.
 - **Key figures.** Autarky and self-consumption in %, computed from the producers, grid and storage of
   the diagram.
 - **Colour by value.** A node — and its lines — goes from green to red with a value, e.g. the
@@ -89,7 +103,7 @@ that move faster the more power there is.
 
 ```bash
 # from the ioBroker admin, or:
-iobroker add energyflow
+iobroker add flow
 ```
 
 The adapter ships no Node.js code (`onlyWWW`), but it needs an instance so that vis-2 and the device
@@ -97,11 +111,11 @@ manager can find it. vis-2 is restarted automatically after the installation.
 
 ### In the admin, without opening vis
 
-The adapter adds a tab **Energy flow** to the admin. It lists the stored diagrams and edits them in the
+The adapter adds a tab **Flow** to the admin. It lists the stored diagrams and edits them in the
 same designer, full page. A diagram saved there reaches every vis-2 widget and every device-manager card
 that shows it the moment you press save — no reload, no vis editor.
 
-Stored diagrams live as states `energyflow.0.diagrams.<id>`, one per diagram, holding the document as
+Stored diagrams live as states `flow.0.diagrams.<id>`, one per diagram, holding the document as
 JSON. That is also why they can be backed up, restored and scripted like any other state.
 
 ### Export and import
@@ -120,7 +134,7 @@ so.
 
 ### In vis-2
 
-Add the **Energy flow diagram** widget from the *Energy flow* set. Its attribute offers two modes:
+Add the **Flow diagram** widget from the *Flow* set. Its attribute offers two modes:
 
 - **Stored diagram** — pick one of the diagrams from the admin tab. The widget holds only a reference;
   edit the diagram in the admin, or open the designer from here, which edits the same stored diagram.
@@ -136,11 +150,11 @@ instead of replacing the one being edited, use *Import* in the admin tab.
 
 ### In ioBroker.devices
 
-In the widget manager, add a widget to a category and pick **Energy flow** from the plugin section at
+In the widget manager, add a widget to a category and pick **Flow diagram** from the plugin section at
 the bottom of the list. The settings dialog of the card has the same two modes as in vis-2, so one
 stored diagram can be shown in vis-2 and in the device manager at the same time.
 
-> The devices side needs ioBroker.devices with the widget manager and `@iobroker/json-config` 10 —
+> The devices side needs `ioBroker.devices` with the widget manager and `@iobroker/json-config` 10 —
 > older versions do not know the plugin mechanism this uses.
 
 ### In another adapter's admin configuration
@@ -153,8 +167,8 @@ putting one item into its `jsonConfig.json`:
 {
     "diagram": {
         "type": "custom",
-        "url": "./adapter/energyflow/dm-widgets/customDevices.js",
-        "name": "energyflow/Config/Designer",
+        "url": "./adapter/flow/dm-widgets/customDevices.js",
+        "name": "flow/Config/Designer",
         "guiApi": 2,
         "i18n": false,
         "newLine": true
@@ -163,12 +177,12 @@ putting one item into its `jsonConfig.json`:
 ```
 
 The edited diagram lands in `native.diagram` of that adapter, as an ordinary object — read it back with
-`normalizeConfig()` and render it with `EnergyFlowView`, or just store it.
+`normalizeConfig()` and render it with `FlowView`, or just store it.
 
 Three things this relies on:
 
-- **ioBroker.energyflow has to be installed**, because the `url` is served from its `admin` folder.
-  Declare it under `common.dependencies` (`[{ "energyflow": ">=0.0.1" }]`) so the installation pulls
+- **ioBroker.flow has to be installed**, because the `url` is served from its `admin` folder.
+  Declare it under `common.dependencies` (`[{ "flow": ">=0.0.1" }]`) so the installation pulls
   it in. `ifInstalledDependencies` is *not* enough — it only checks the version when the adapter
   happens to be there, and otherwise the form shows a load error instead of the designer.
 - **`guiApi: 2`** says the component is built for React 19 / MUI 9. An older admin refuses it rather
@@ -211,7 +225,7 @@ packages/core/       model, value resolution, geometry, SVG renderer — no MUI,
 packages/editor/     the designer (MUI + @iobroker/gui-components)
 packages/i18n/       the dictionary, used by both bundles
 examples/            complete diagrams to import; `npm test` checks they stay valid
-src-widgets/         the vis-2 widget set   -> widgets/energyflow/
+src-widgets/         the vis-2 widget set   -> widgets/flow/
 src-dm-widgets/      the devices plugin     -> admin/dm-widgets/
 src-admin/           the admin tab          -> admin/tab.html + admin/tab-assets/
 src-preview/         dev server only: the admin-side GUI with hot reload, never built or shipped

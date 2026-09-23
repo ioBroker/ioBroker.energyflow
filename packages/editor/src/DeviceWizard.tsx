@@ -27,8 +27,8 @@ import {
     isSocState,
     objectName,
     type DeviceKind,
-    type EnergyFlowConfig,
-} from '@energyflow/core';
+    type FlowConfig,
+} from '@flow/core';
 
 import { SelectRow } from './fields';
 import { KIND_ICONS } from './optionIcons';
@@ -38,7 +38,7 @@ import type { EditorContext } from './types';
 export interface DeviceWizardProps {
     open: boolean;
     onClose: () => void;
-    onPick: (config: EnergyFlowConfig) => void;
+    onPick: (config: FlowConfig) => void;
     context: EditorContext;
 }
 

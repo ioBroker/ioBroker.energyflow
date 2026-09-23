@@ -10,7 +10,7 @@ declare global {
     }
 }
 
-window.adapterName = 'energyflow';
+window.adapterName = 'flow';
 
 const container = document.getElementById('root');
 if (container) {

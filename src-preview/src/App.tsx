@@ -37,8 +37,8 @@ import {
     type GenericAppState,
 } from '@iobroker/gui-components';
 
-import translations, { I18N_PREFIX } from '@energyflow/i18n';
-import type { EditorContext } from '@energyflow/editor';
+import translations, { I18N_PREFIX } from '@flow/i18n';
+import type { EditorContext } from '@flow/editor';
 
 import DiagramManager from '../../src-admin/src/DiagramManager';
 import { WidgetPreview } from './WidgetPreview';
@@ -51,7 +51,7 @@ const PAGES: Page[] = ['admin', 'widget', 'config'];
 /** Languages the dictionary actually has; the others fall back to English anyway */
 const LANGUAGES: ioBroker.Languages[] = ['de', 'en'];
 
-const PAGE_KEY = 'energyflow.preview.page';
+const PAGE_KEY = 'flow.preview.page';
 
 interface AppState extends GenericAppState {
     page: Page;
@@ -85,7 +85,7 @@ export default class App extends GenericApp<GenericAppProps, AppState> {
         extendedProps.bottomButtons = false;
         // @ts-expect-error the two connection classes differ only in their admin-only methods
         extendedProps.Connection = AdminConnection;
-        extendedProps.adapterName = 'energyflow';
+        extendedProps.adapterName = 'flow';
         extendedProps.socket = adminSocket();
         super(props, { ...extendedProps, doNotLoadAllObjects: true });
 
@@ -133,6 +133,8 @@ export default class App extends GenericApp<GenericAppProps, AppState> {
             theme: this.state.theme,
             themeType: this.state.themeType,
             lang: this.state.lang,
+            // The preview is served by Vite, the icons of the adapters by the admin
+            imagePrefix: `${__ADMIN_PROTOCOL__}//${__ADMIN_HOST__}:${__ADMIN_PORT__}`,
             t,
         };
 
@@ -188,7 +190,7 @@ export default class App extends GenericApp<GenericAppProps, AppState> {
                                 variant="dense"
                                 sx={{ gap: 2 }}
                             >
-                                <Typography variant="subtitle1">Energy flow · preview</Typography>
+                                <Typography variant="subtitle1">Flow · preview</Typography>
                                 <Tabs
                                     value={this.state.page}
                                     onChange={(_event, page: Page) => this.setPage(page)}

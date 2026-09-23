@@ -12,15 +12,15 @@ import {
     cachedMax,
     collectOids,
     computeRuntime,
-    EnergyFlowView,
+    FlowView,
     detailTarget,
     emptyConfig,
     needsClock,
     parseStoredDiagram,
     readDetail,
     themeFromMui,
-    type EnergyFlowConfig,
-} from '@energyflow/core';
+    type FlowConfig,
+} from '@flow/core';
 import {
     loadDiagram,
     useClock,
@@ -33,7 +33,7 @@ import {
     usePersistentState,
     useStoredDiagrams,
     type EditorContext,
-} from '@energyflow/editor';
+} from '@flow/editor';
 
 const EMPTY = emptyConfig();
 
@@ -41,8 +41,8 @@ export function WidgetPreview(props: { context: EditorContext; instance: number 
     const { context, instance } = props;
     const muiTheme = useTheme();
     const { diagrams } = useStoredDiagrams(context.socket, instance);
-    const [view, setView] = usePersistentState('energyflow.preview.widget', { id: '', width: 900 });
-    const [config, setConfig] = React.useState<{ id: string; config: EnergyFlowConfig | null } | null>(null);
+    const [view, setView] = usePersistentState('flow.preview.widget', { id: '', width: 900 });
+    const [config, setConfig] = React.useState<{ id: string; config: FlowConfig | null } | null>(null);
 
     const selected = diagrams.some(entry => entry.id === view.id) ? view.id : (diagrams[0]?.id ?? '');
 
@@ -140,7 +140,7 @@ export function WidgetPreview(props: { context: EditorContext; instance: number 
                             outline: theme => `1px dashed ${theme.palette.divider}`,
                         }}
                     >
-                        <EnergyFlowView
+                        <FlowView
                             runtime={runtime}
                             theme={flowTheme}
                             animate

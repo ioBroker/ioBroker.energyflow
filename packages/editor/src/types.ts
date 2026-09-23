@@ -16,6 +16,18 @@ export interface EditorContext {
     lang: ioBroker.Languages;
     /** Translates a key of this widget set */
     t: (key: string, ...args: (string | number)[]) => string;
+    /**
+     * What the object browser puts in front of `/adapter/<name>/<icon>` when it shows the icon of an
+     * adapter.
+     *
+     * Its own default is `.`, which is right only for a page served from the root -- the admin
+     * itself. From the admin tab at `/adapter/flow/tab.html` that same `.` asks for
+     * `/adapter/flow/adapter/cameras/cameras.png` and every icon stays broken, and in vis-2 at
+     * `/vis-2/edit.html` it is wrong in the same way. An empty prefix asks the server for
+     * `/adapter/...`, which is where both the admin and the web adapter serve those files; a host
+     * that runs somewhere else entirely -- the development preview -- passes the full origin.
+     */
+    imagePrefix?: string;
 }
 
 /**

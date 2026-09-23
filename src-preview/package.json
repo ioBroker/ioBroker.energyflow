@@ -1,5 +1,5 @@
 {
-    "name": "iobroker.energyflow-preview",
+    "name": "iobroker.flow-preview",
     "private": true,
     "version": "0.0.1",
     "type": "module",

@@ -1,5 +1,5 @@
 {
-    "name": "iobroker.energyflow-dm-widgets",
+    "name": "iobroker.flow-dm-widgets",
     "private": true,
     "version": "0.0.1",
     "type": "module",

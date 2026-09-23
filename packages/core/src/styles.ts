@@ -5,8 +5,8 @@
  * it adjusts it, so "clean" in a dark admin is a dark clean diagram. Adding a style is adding an
  * entry here; the renderer asks the style, never its name.
  */
-import type { EnergyFlowTheme } from './theme';
-import type { EnergyFlowConfig, NodeKind } from './types';
+import type { FlowTheme } from './theme';
+import type { FlowConfig, NodeKind } from './types';
 
 export type DiagramStyleId = 'normal' | 'clean' | 'neo' | 'neon';
 
@@ -49,7 +49,7 @@ export interface DiagramStyle {
     /** The moving dots in the line colour, or light dots on the coloured line */
     dots: 'line' | 'light';
     /** Adjust the host theme for this style */
-    theme: (base: EnergyFlowTheme) => EnergyFlowTheme;
+    theme: (base: FlowTheme) => FlowTheme;
 }
 
 const NORMAL: DiagramStyle = {
@@ -236,7 +236,7 @@ const STYLES: Record<DiagramStyleId, DiagramStyle> = { normal: NORMAL, clean: CL
  * @param config the diagram
  * @returns its style; `normal` for none or an unknown one
  */
-export function diagramStyle(config: EnergyFlowConfig | undefined): DiagramStyle {
+export function diagramStyle(config: FlowConfig | undefined): DiagramStyle {
     return STYLES[config?.defaults?.style as DiagramStyleId] ?? NORMAL;
 }
 
@@ -248,6 +248,6 @@ export function diagramStyle(config: EnergyFlowConfig | undefined): DiagramStyle
  * @param config the diagram
  * @returns the theme to draw with
  */
-export function styledTheme(theme: EnergyFlowTheme, config: EnergyFlowConfig | undefined): EnergyFlowTheme {
+export function styledTheme(theme: FlowTheme, config: FlowConfig | undefined): FlowTheme {
     return diagramStyle(config).theme(theme);
 }

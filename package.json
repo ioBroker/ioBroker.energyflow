@@ -1,22 +1,22 @@
 {
-    "name": "iobroker.energyflow",
+    "name": "iobroker.flow",
     "version": "0.0.1",
-    "description": "Configurable energy flow diagram for ioBroker.vis-2 and ioBroker.devices",
+    "description": "Configurable flow diagram for energy, water, gas and heat, for ioBroker.vis-2 and ioBroker.devices",
     "author": "bluefox <dogafox@gmail.com>",
     "contributors": [
         "bluefox <dogafox@gmail.com>"
     ],
-    "homepage": "https://github.com/ioBroker/ioBroker.energyflow",
+    "homepage": "https://github.com/ioBroker/ioBroker.flow",
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/ioBroker/ioBroker.energyflow"
+        "url": "https://github.com/ioBroker/ioBroker.flow"
     },
     "keywords": [
         "ioBroker",
         "visualisation",
         "energy",
-        "energyflow",
+        "flow",
         "photovoltaics",
         "vis-2",
         "devices"
@@ -76,7 +76,7 @@
         "dev": "npm run start --workspace=src-preview"
     },
     "bugs": {
-        "url": "https://github.com/ioBroker/ioBroker.energyflow/issues"
+        "url": "https://github.com/ioBroker/ioBroker.flow/issues"
     },
     "readmeFilename": "README.md"
 }

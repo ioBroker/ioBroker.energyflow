@@ -7,7 +7,7 @@ import React from 'react';
 
 import type { Connection } from '@iobroker/gui-components';
 
-import { cachedUnit, loadUnits, type UnitGetter } from '@energyflow/core';
+import { cachedUnit, loadUnits, type UnitGetter } from '@flow/core';
 
 export function useObjectUnits(socket: Connection | undefined, oids: string[]): UnitGetter {
     const [units, setUnits] = React.useState<Record<string, string>>({});

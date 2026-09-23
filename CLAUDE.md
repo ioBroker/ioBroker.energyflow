@@ -7,8 +7,8 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 An ioBroker adapter of type `visualization-widgets` (`onlyWWW: true`, `mode: none`) that ships **no
 Node.js runtime code**. It delivers one diagram in two places:
 
-- a **vis-2 widget set** (`src-widgets/` → `widgets/energyflow/`), loaded by vis-2 through Vite module
-  federation, declared in `io-package.json` under `common.visWidgets.energyflowWidgets`;
+- a **vis-2 widget set** (`src-widgets/` → `widgets/flow/`), loaded by vis-2 through Vite module
+  federation, declared in `io-package.json` under `common.visWidgets.flowWidgets`;
 - a **ioBroker.devices plugin** (`src-dm-widgets/` → `admin/dm-widgets/`), loaded by the widget
   manager of ioBroker.devices, declared under `common.deviceWidgets`;
 - an **admin tab** (`src-admin/` → `admin/tab.html` + `admin/tab-assets/`), declared as
@@ -23,7 +23,7 @@ source packages that are compiled into both bundles:
 | `packages/editor` | the designer dialog | MUI + `@iobroker/gui-components`; host-agnostic via `EditorContext` |
 | `packages/i18n` | the dictionary | used by both bundles |
 
-They are consumed through the aliases `@energyflow/core`, `@energyflow/editor`, `@energyflow/i18n`,
+They are consumed through the aliases `@flow/core`, `@flow/editor`, `@flow/i18n`,
 declared in each `vite.config.ts` (`resolve.alias`) and each `tsconfig.json` (`paths`). They are *not*
 built or published separately — the bundles compile their TypeScript directly.
 
@@ -32,7 +32,7 @@ built or published separately — the bundles compile their TypeScript directly.
 ```bash
 npm install          # AT THE ROOT. This is a workspace; see "Why a workspace" below.
 npm run build        # previews + both bundles
-npm run build-vis    # only src-widgets -> widgets/energyflow/
+npm run build-vis    # only src-widgets -> widgets/flow/
 npm run build-dm     # only src-dm-widgets -> admin/dm-widgets/
 npm run build-admin  # only src-admin -> admin/tab.html + admin/tab-assets/
 npm run dev          # src-preview on :3100 -- admin tab, widget and attribute editor with hot reload
@@ -73,7 +73,7 @@ that node only on release without movement (`clickSelects`), since at the press 
 `moveNodes` shifts the waypoints of connections with both ends in the moved set.
 
 Copy, paste and delete are in `useEditorShortcuts.ts`; the clipboard format is `clipboard.ts` in the
-core (`iobroker.energyflow/nodes`, plain JSON text). Two constraints shaped it:
+core (`iobroker.flow/nodes`, plain JSON text). Two constraints shaped it:
 
 - **Focus decides.** Shortcuts act only while the focus is inside the designer's root element (or on
   the body / the dialog around it) and not in a text field. A press on the canvas focuses the SVG
@@ -145,9 +145,14 @@ import `@mui/icons-material`: vis-2 does not share it, and one icon costs ~70 kB
 the widget's sync chunk -- the close cross is drawn with the shared `SvgIcon`. `detailTarget` picks the
 state (the action's own, else the value's) and the value's rescaling; `readDetail` reads it.
 
-`node.energyToday` integrates the value since local midnight with the history adapter's
-`aggregate: 'integral', integralUnit: 3600` (`loadEnergyToday`), shown as Wh -> kWh in the second
-line. Host readers spread the request options **after** their defaults, so `integral` survives.
+`node.energyToday` shows the energy of the day in the second line. With a `src` it is read from
+there and nothing is integrated -- an inverter that counts the day itself is the number the user
+compares with the manufacturer's app, and a reading beats an integral over a value that was only
+sampled. A source counts in the unit its state object declares, **kWh when it declares none**, which
+is what a "yield today" reports everywhere. Without a `src` the history adapter integrates the
+node's value since local midnight (`aggregate: 'integral', integralUnit: 3600`, `loadEnergyToday`),
+shown as Wh -> kWh; host readers spread the request options **after** their defaults, so `integral`
+survives, and `energyRequests` skips the nodes that count for themselves.
 
 ## Picture export and the assistant
 
@@ -182,6 +187,27 @@ for a formula the most recent of its states. The hosts keep `{ ts, lc }` per sta
 (`RelativeTimeFormat`, `toLocaleString`) writes it, so no dictionary entries are needed and every
 language comes with its plural rules. A relative time has to advance without a state change, so the
 hosts re-render every 30 s while a node shows one (`useClock`, `efClock`).
+
+## What flows
+
+`packages/core/src/media.ts`. The medium (`defaults.medium`: energy, water, gas, heat) is a table of
+**presets, not behaviour** -- the renderer and the runtime never ask what flows, a line is a line and
+a number is a number in the unit it was given. It supplies the unit of a new diagram, the reference
+value for the dot speed, the icon a node kind gets when it names none (`defaultIcon(kind, config)`),
+and the unit a counter of the day is read in when its object declares none (`counterUnit`: kWh for
+energy, litres for water). Everything it sets is an ordinary field the user can overrule, and a
+document without a medium behaves exactly like one of energy.
+
+Two things follow the unit rather than the medium, because the unit is what is actually true:
+
+- **The time base of an amount** (`integralSeconds` in `format.ts`). `l/min` integrated over hours is
+  sixty times too much, so `energyRequests` reads the unit of each node and hands the history adapter
+  the right `integralUnit`; `amountUnit` names what comes out (`W` -> `Wh`, `l/min` -> `l`).
+- **Whether the amount climbs into the next prefix.** Only energy does: 5000 Wh is 5 kWh, but nobody
+  writes 5 kl where they mean five cubic metres.
+
+The designer's wording comes from `kindLabel()` in the editor package: `kind_source_water` when the
+dictionary has it, `kind_source` otherwise -- so only the words that really differ need an entry.
 
 ## Units
 
@@ -220,7 +246,7 @@ up only as a widget that does not appear.
 
 ### vis-2
 
-- `common.visWidgets.energyflowWidgets.url` = `energyflow/customWidgets.js`, and `bundlerType` **must**
+- `common.visWidgets.flowWidgets.url` = `flow/customWidgets.js`, and `bundlerType` **must**
   be `"module"` for a Vite build (the opposite of the CRA template).
 - Three lists must stay in sync: `exposes` in `src-widgets/vite.config.ts`,
   `common.visWidgets.*.components` in `io-package.json`, and the module file itself.
@@ -237,13 +263,13 @@ up only as a widget that does not appear.
 - `pluginLoader.ts` there loads `./translations` and then `./Components`, and picks the widget out of
   the **default export** of `./Components` by the name in `common.deviceWidgets.components[].name`.
 - The settings dialog is a `jsonConfig` form. The designer reaches it as an item of `type: 'custom'`:
-  - `url` must start with `./` to escape the adapter-relative default — `./adapter/energyflow/dm-widgets/customDevices.js`;
-  - `name` is `<remote alias>/<exposed module>/<exported name>`, here `energyflow/Config/Designer`. The
-    alias is `energyflow` on purpose, matching what `pluginLoader.ts` already registered;
+  - `url` must start with `./` to escape the adapter-relative default — `./adapter/flow/dm-widgets/customDevices.js`;
+  - `name` is `<remote alias>/<exposed module>/<exported name>`, here `flow/Config/Designer`. The
+    alias is `flow` on purpose, matching what `pluginLoader.ts` already registered;
   - the exposed module is read as `(await loadRemote(...)).default[<exported name>]` -- by the copy of
     `ConfigCustom` inside the device manager as well as by the current `@iobroker/json-config`. So
     `Config.tsx` **must** have a default export holding the components; with named exports only, the
-    dialog shows "Component energyflow/Config/Designer not found ... Found:" and nothing else;
+    dialog shows "Component flow/Config/Designer not found ... Found:" and nothing else;
   - `guiApi: 2` declares React 19 / MUI 9. `@iobroker/json-config` also sniffs `mf-manifest.json` and
     refuses a bundle that shares `@iobroker/adapter-react-v5`.
 - **The size field is the widget's, if it wants the big one.** The host prepends `size` with 1x1,
@@ -288,14 +314,14 @@ Two consequences for that file:
   callback for `oContext.forceUpdate([attr], data)`, without which this item keeps rendering the
   value it was mounted with.
 - It **registers its own translations** at module load. The devices plugin loader does it beforehand,
-  an adapter's config page does not, and without it the designer renders raw `energyflow_*` keys.
+  an adapter's config page does not, and without it the designer renders raw `flow_*` keys.
 - The `url` must keep its leading `./`. `ConfigCustom` resolves a bare path against *the adapter being
   configured*; only `./` escapes to an absolute one.
 
 ## Where a diagram lives
 
 `packages/core/src/storage.ts`. A widget attribute holds **either** a diagram (inline) **or** a
-reference `{ "$ref": "energyflow.0.diagrams.<id>" }` to one stored as a state in the adapter's
+reference `{ "$ref": "flow.0.diagrams.<id>" }` to one stored as a state in the adapter's
 namespace. The admin tab only ever edits stored ones.
 
 - **States, not objects**, because both hosts already subscribe to states: an edit saved in the admin
@@ -304,7 +330,7 @@ namespace. The admin tab only ever edits stored ones.
   everything else to "number".
 - **`readDiagramAttribute()` must be asked before `normalizeConfig()`**, which turns a reference into an
   empty diagram without complaint (a reference has none of a diagram's keys).
-- **References are only followed into `energyflow.<n>.diagrams.*`** (`isDiagramId`), so a widget cannot
+- **References are only followed into `flow.<n>.diagrams.*`** (`isDiagramId`), so a widget cannot
   be pointed at an arbitrary state and have its value parsed; a stored diagram that is itself a
   reference is refused rather than followed.
 - Written with **`ack: true`**: the adapter is web-only, nothing would ever acknowledge the value.
@@ -317,7 +343,7 @@ page, stays open after saving, "discard" remounts it from the stored state. Ever
 current diagram goes through one `guard()` so unsaved changes are never thrown away silently.
 
 Admin shows the tab of every instance with `common.adminTab`, running or not (the adapter never runs:
-`onlyWWW`). It loads `adapter/energyflow/tab.html`; `patchHtmlFile` needs the socket loader's
+`onlyWWW`). It loads `adapter/flow/tab.html`; `patchHtmlFile` needs the socket loader's
 `var script` to be the first statement of its `<script>`, so keep comments out of it in `index.html`.
 
 ## Bundle size
@@ -329,7 +355,7 @@ has to hand over complete. Two decisions follow, and both have a measured reason
   as it came put 6.5 MB of fallback copies into `admin/dm-widgets/` — 4.3 MB of it `@mui/icons-material`
   for a dozen icons. Only things that genuinely break as a second copy stay shared.
 - Because `@iobroker/gui-components` is therefore bundled, importing *anything* from its barrel in a
-  module that the widget loads eagerly drags in all 620 kB of it. `EnergyFlowDm.tsx` gets `I18n` from
+  module that the widget loads eagerly drags in all 620 kB of it. `FlowDm.tsx` gets `I18n` from
   `AdapterReact` in `@iobroker/dm-widgets` (the host's copy) instead, and `DiagramField.tsx` on the
   vis-2 side is lazy for the same reason.
 
@@ -364,6 +390,18 @@ against `.async`. The vis-2 widget's sync set should stay around 100 kB.
   no meter reads like that.
 - **An edge with no colour takes the colour of wherever the energy comes from**, which flips with the
   direction. This is what makes a new connection readable without configuring anything.
+- **The object browser has to be told where the adapter icons are.** `DialogSelectID` builds them as
+  `${imagePrefix}/adapter/<name>/<icon>` and defaults that prefix to `.`, which is right only on a
+  page served from the root. Our pages are deeper -- `/adapter/flow/tab.html`, the device
+  manager, `/vis-2/edit.html` -- so every icon 404s as `/adapter/flow/adapter/...`.
+  `pageImagePrefix()` in `SourceField.tsx` climbs as many levels as the page is deep (`../..` in the
+  admin tab) and stays relative; an empty string is no use, the browser falls back to `.` for it.
+  `EditorContext.imagePrefix` overrides it -- the development preview passes the admin's origin,
+  because there the page comes from Vite and the icons from the admin.
+- **A connection's value sits beside its line, or in a chip on it** (`defaults.edgeLabel`). Beside
+  the line the distance is computed from the text's own width, so a label next to a vertical line
+  clears it and the arrow on it; as a chip it goes on the middle of the line, because the rounded box
+  brings its own background and needs no halo. The chip's outline takes the colour of an active line.
 - **Edge labels show the magnitude, node values show the sign.** A minus next to an arrow reads wrong;
   a battery at −2.1 kW is charging, and that is information worth keeping.
 - **The animation is CSS on a second dashed copy of each line**, not JavaScript. `--ef-shift` is one
@@ -389,7 +427,7 @@ against `.async`. The vis-2 widget's sync set should stay around 100 kB.
 - **Text fits its box by estimate, not by measurement** (`fitFontSize`). The renderer also runs in
   node for the previews and the gallery, where there is nothing to measure with; the character widths
   are measured once on system-ui, and a value never shrinks below half its size.
-- **The core never reads a MUI theme.** Each host flattens its own into `EnergyFlowTheme` once
+- **The core never reads a MUI theme.** Each host flattens its own into `FlowTheme` once
   (`themeFromMui`). The node accents deliberately do not come from the palette — photovoltaics must not
   turn blue because somebody picked a blue primary colour.
 - **`expr.ts` is a hand-written parser, not `new Function`.** A widget configuration is data that
@@ -431,7 +469,7 @@ renders the conversion of it next to the templates.
 
 `packages/core/src/exchange.ts` reads every file and every pasted text, in both places that take one
 (the designer's `< >` dialog and the admin tab's import), so a text that works in one works in the other.
-`readImport()` tells three shapes apart: a **bundle** (`format: 'iobroker.energyflow/diagrams'`, what
+`readImport()` tells three shapes apart: a **bundle** (`format: 'iobroker.flow/diagrams'`, what
 "export all" writes), an **energiefluss-erweitert** configuration (checked before our own format: it
 has none of our keys and would otherwise read as an empty diagram), and a **diagram**, which must at
 least have a `nodes` array. Anything laxer accepts any JSON file as an empty diagram, which is how a

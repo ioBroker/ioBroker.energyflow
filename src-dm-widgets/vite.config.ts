@@ -21,7 +21,7 @@ import { hostShim } from './hostShim';
  * - `./translations` is loaded right before it and handed to `I18n.extendTranslations`.
  *
  * `./Config` is ours: the designer, reached from the widget's settings dialog as a `jsonConfig`
- * component of type `custom`. See `EnergyFlowDm.getConfigSchema()` for the other half of that contract.
+ * component of type `custom`. See `FlowDm.getConfigSchema()` for the other half of that contract.
  *
  * `manifest: true` is not optional either. `@iobroker/json-config` fetches `mf-manifest.json` next to
  * the entry and refuses to load a custom component whose manifest shares
@@ -82,7 +82,7 @@ const config = {
         hostShim(),
         federation({
             manifest: true,
-            name: 'energyflowDevices',
+            name: 'flowDevices',
             filename: 'customDevices.js',
             exposes: {
                 './Components': './src/Components',
@@ -98,9 +98,9 @@ const config = {
     ],
     resolve: {
         alias: {
-            '@energyflow/core': `${packages}/core/src/index.ts`,
-            '@energyflow/editor': `${packages}/editor/src/index.ts`,
-            '@energyflow/i18n': `${packages}/i18n/src/index.ts`,
+            '@flow/core': `${packages}/core/src/index.ts`,
+            '@flow/editor': `${packages}/editor/src/index.ts`,
+            '@flow/i18n': `${packages}/i18n/src/index.ts`,
         },
         dedupe: ['react', 'react-dom', '@emotion/react', '@mui/material', '@mui/system', '@mui/icons-material'],
     },

@@ -14,9 +14,9 @@
 import React from 'react';
 
 import { iconPlacement } from './defaults';
-import { fitFontSize } from './format';
+import { fitFontSize, textWidth } from './format';
 import { diagramStyle, type DiagramStyle } from './styles';
-import { withAlpha, type EnergyFlowTheme } from './theme';
+import { withAlpha, type FlowTheme } from './theme';
 import { renderBuiltinIcon } from './icons';
 import type { EdgeRuntime, FlowRuntime, NodeRuntime } from './runtime';
 import type { FlowNode, Point } from './types';
@@ -47,9 +47,9 @@ const CSS = `
 }
 `;
 
-export interface EnergyFlowViewProps {
+export interface FlowViewProps {
     runtime: FlowRuntime;
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     /**
      * Whether the dots move. The host decides: it knows whether the tab is hidden, whether the
      * widget scrolled out of view and whether the user asked for reduced motion. While this is
@@ -242,17 +242,54 @@ function EdgeLabels({
     theme,
     fontSize,
     look,
+    chip,
 }: {
     edges: EdgeRuntime[];
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     fontSize: number;
     look: DiagramStyle;
+    /** Draw the value in a rounded box on the line instead of beside it */
+    chip?: boolean;
 }): React.ReactElement {
     return (
         <g className="ef-edge-labels">
             {edges.map(edge => {
                 if (!edge.visible || !edge.edge.showValue) {
                     return null;
+                }
+                if (chip) {
+                    // Wide enough for the text plus a little air; the height makes the ends half
+                    // circles, so it reads as one tag rather than a box
+                    const width = textWidth(edge.valueText.text, fontSize, true) + fontSize * 1.3;
+                    const height = fontSize * 1.8;
+                    return (
+                        <g
+                            key={edge.edge.id}
+                            style={{ pointerEvents: 'none', userSelect: 'none' }}
+                        >
+                            <rect
+                                x={edge.labelPos.x - width / 2}
+                                y={edge.labelPos.y - height / 2}
+                                width={width}
+                                height={height}
+                                rx={height / 2}
+                                fill={theme.surface}
+                                stroke={edge.active ? withAlpha(edge.color, 0.7) : theme.border}
+                                strokeWidth={1.2}
+                            />
+                            <text
+                                x={edge.labelPos.x}
+                                y={edge.labelPos.y}
+                                textAnchor="middle"
+                                dominantBaseline="middle"
+                                fontSize={fontSize}
+                                fontWeight={600}
+                                fill={edge.active ? theme.text : theme.textSecondary}
+                            >
+                                {edge.valueText.text}
+                            </text>
+                        </g>
+                    );
                 }
                 return (
                     <text
@@ -289,7 +326,7 @@ function NodeShapeBody({
     glowId,
 }: {
     node: NodeRuntime;
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     look: DiagramStyle;
     shadowId?: string;
     glowId?: string;
@@ -444,7 +481,7 @@ function CardContent({
     glowId,
 }: {
     node: NodeRuntime;
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     look: DiagramStyle;
     lines: CardLine[];
     glowId?: string;
@@ -561,7 +598,7 @@ function NodeLayer({
     iconGlowId,
 }: {
     nodes: NodeRuntime[];
-    theme: EnergyFlowTheme;
+    theme: FlowTheme;
     selected: Set<string>;
     onNodeClick?: (node: FlowNode, event: React.MouseEvent) => void;
     hideLabels?: boolean;
@@ -821,7 +858,7 @@ function NodeLayer({
  * @param props the runtime to draw, the theme and the interaction hooks
  * @returns the SVG element
  */
-export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
+export function FlowView(props: FlowViewProps): React.ReactElement {
     const { runtime, theme, animate = true, onNodeClick, background, overlay, className, style, svgProps } = props;
     const hideLabels = props.hideLabels;
     const { canvas } = runtime.config;
@@ -1037,6 +1074,7 @@ export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
                     theme={drawTheme}
                     fontSize={runtime.labelFontSize}
                     look={look}
+                    chip={runtime.config.defaults?.edgeLabel === 'chip'}
                 />
             )}
             {overlay ? <g className="ef-overlay">{overlay}</g> : null}
@@ -1044,4 +1082,4 @@ export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
     );
 }
 
-export default EnergyFlowView;
+export default FlowView;

@@ -1,6 +1,6 @@
 {
     "common": {
-        "name": "energyflow",
+        "name": "flow",
         "version": "0.0.1",
         "news": {
             "0.0.1": {
@@ -18,30 +18,30 @@
             }
         },
         "titleLang": {
-            "en": "Energy flow",
-            "de": "Energiefluss",
-            "ru": "Поток энергии",
-            "pt": "Fluxo de energia",
-            "nl": "Energiestroom",
-            "fr": "Flux d'énergie",
-            "it": "Flusso di energia",
-            "es": "Flujo de energía",
-            "pl": "Przepływ energii",
-            "uk": "Потік енергії",
-            "zh-cn": "能量流"
+            "en": "Flow",
+            "de": "Flow",
+            "ru": "Flow",
+            "pt": "Flow",
+            "nl": "Flow",
+            "fr": "Flow",
+            "it": "Flow",
+            "es": "Flow",
+            "pl": "Flow",
+            "uk": "Flow",
+            "zh-cn": "Flow"
         },
         "desc": {
-            "en": "Freely configurable, animated energy flow diagram for vis-2 and the device manager",
-            "de": "Frei konfigurierbares, animiertes Energiefluss-Diagramm für vis-2 und den Geräte-Manager",
-            "ru": "Свободно настраиваемая анимированная диаграмма потока энергии для vis-2 и менеджера устройств",
-            "pt": "Diagrama de fluxo de energia animado e configurável para vis-2 e o gestor de dispositivos",
-            "nl": "Vrij configureerbaar, geanimeerd energiestroomdiagram voor vis-2 en de apparaatbeheerder",
-            "fr": "Diagramme de flux d'énergie animé et librement configurable pour vis-2 et le gestionnaire d'appareils",
-            "it": "Diagramma di flusso energetico animato e liberamente configurabile per vis-2 e il gestore dispositivi",
-            "es": "Diagrama de flujo de energía animado y configurable para vis-2 y el gestor de dispositivos",
-            "pl": "Dowolnie konfigurowalny, animowany diagram przepływu energii dla vis-2 i menedżera urządzeń",
-            "uk": "Вільно налаштовувана анімована діаграма потоку енергії для vis-2 та менеджера пристроїв",
-            "zh-cn": "适用于 vis-2 和设备管理器的可自由配置动画能量流图"
+            "en": "Freely configurable, animated flow diagram for energy, water, gas and heat, for vis-2 and the device manager",
+            "de": "Frei konfigurierbares, animiertes Fluss-Diagramm für Energie, Wasser, Gas und Wärme, für vis-2 und den Geräte-Manager",
+            "ru": "Свободно настраиваемая анимированная диаграмма потоков энергии, воды, газа и тепла для vis-2 и менеджера устройств",
+            "pt": "Diagrama de fluxo animado e livremente configurável para energia, água, gás e calor, para vis-2 e o gestor de dispositivos",
+            "nl": "Vrij configureerbaar, geanimeerd stroomdiagram voor energie, water, gas en warmte, voor vis-2 en de apparaatbeheerder",
+            "fr": "Diagramme de flux animé et librement configurable pour l’énergie, l’eau, le gaz et la chaleur, pour vis-2 et le gestionnaire d’appareils",
+            "it": "Diagramma di flusso animato e liberamente configurabile per energia, acqua, gas e calore, per vis-2 e il gestore dispositivi",
+            "es": "Diagrama de flujo animado y configurable para energía, agua, gas y calor, para vis-2 y el gestor de dispositivos",
+            "pl": "Dowolnie konfigurowalny, animowany diagram przepływu energii, wody, gazu i ciepła dla vis-2 i menedżera urządzeń",
+            "uk": "Вільно налаштовувана анімована діаграма потоків енергії, води, газу та тепла для vis-2 та менеджера пристроїв",
+            "zh-cn": "适用于 vis-2 和设备管理器的可自由配置动画流图：电、水、燃气和热"
         },
         "licenseInformation": {
             "license": "MIT",
@@ -51,15 +51,19 @@
             "bluefox <dogafox@gmail.com>"
         ],
         "keywords": [
-            "energyflow",
             "energy",
-            "photovoltaics"
+            "water",
+            "flow",
+            "diagram",
+            "vis-2",
+            "widgets",
+            "devices"
         ],
         "platform": "Javascript/Node.js",
-        "icon": "energyflow.svg",
-        "extIcon": "https://raw.githubusercontent.com/ioBroker/ioBroker.energyflow/main/admin/energyflow.svg",
+        "icon": "flow.svg",
+        "extIcon": "https://raw.githubusercontent.com/ioBroker/ioBroker.flow/main/admin/flow.svg",
         "enabled": true,
-        "readme": "https://github.com/ioBroker/ioBroker.energyflow/blob/main/README.md",
+        "readme": "https://github.com/ioBroker/ioBroker.flow/blob/main/README.md",
         "loglevel": "info",
         "mode": "none",
         "adminUI": {
@@ -73,13 +77,13 @@
         "nogit": true,
         "singleton": true,
         "visWidgets": {
-            "energyflowWidgets": {
+            "flowWidgets": {
                 "i18n": "component",
-                "name": "energyflowWidgets",
-                "url": "energyflow/customWidgets.js",
+                "name": "flowWidgets",
+                "url": "flow/customWidgets.js",
                 "bundlerType": "module",
                 "components": [
-                    "EnergyFlow"
+                    "Flow"
                 ]
             }
         },
@@ -87,34 +91,34 @@
             "url": "customDevices.js",
             "components": [
                 {
-                    "name": "EnergyFlow",
+                    "name": "Flow",
                     "label": {
-                        "en": "Energy flow",
-                        "de": "Energiefluss",
-                        "ru": "Поток энергии",
-                        "pt": "Fluxo de energia",
-                        "nl": "Energiestroom",
-                        "fr": "Flux d'énergie",
-                        "it": "Flusso di energia",
-                        "es": "Flujo de energía",
-                        "pl": "Przepływ energii",
-                        "uk": "Потік енергії",
-                        "zh-cn": "能量流"
+                        "en": "Flow diagram",
+                        "de": "Fluss-Diagramm",
+                        "ru": "Диаграмма потока",
+                        "pt": "Diagrama de fluxo",
+                        "nl": "Stroomdiagram",
+                        "fr": "Diagramme de flux",
+                        "it": "Diagramma di flusso",
+                        "es": "Diagrama de flujo",
+                        "pl": "Diagram przepływu",
+                        "uk": "Діаграма потоку",
+                        "zh-cn": "流图"
                     },
                     "description": {
-                        "en": "Animated energy flow diagram with its own designer",
-                        "de": "Animiertes Energiefluss-Diagramm mit eigenem Designer",
-                        "ru": "Анимированная диаграмма потока энергии с собственным редактором",
-                        "pt": "Diagrama de fluxo de energia animado com o seu próprio editor",
-                        "nl": "Geanimeerd energiestroomdiagram met eigen ontwerper",
-                        "fr": "Diagramme de flux d'énergie animé avec son propre éditeur",
-                        "it": "Diagramma di flusso energetico animato con il proprio editor",
-                        "es": "Diagrama de flujo de energía animado con su propio editor",
-                        "pl": "Animowany diagram przepływu energii z własnym edytorem",
-                        "uk": "Анімована діаграма потоку енергії з власним редактором",
-                        "zh-cn": "带有自己设计器的动画能量流图"
+                        "en": "Animated flow diagram with its own designer: energy, water, gas or heat",
+                        "de": "Animiertes Fluss-Diagramm mit eigenem Designer: Energie, Wasser, Gas oder Wärme",
+                        "ru": "Анимированная диаграмма потоков с собственным редактором: энергия, вода, газ или тепло",
+                        "pt": "Diagrama de fluxo animado com o seu próprio editor: energia, água, gás ou calor",
+                        "nl": "Geanimeerd stroomdiagram met eigen ontwerper: energie, water, gas of warmte",
+                        "fr": "Diagramme de flux animé avec son propre éditeur : énergie, eau, gaz ou chaleur",
+                        "it": "Diagramma di flusso animato con il proprio editor: energia, acqua, gas o calore",
+                        "es": "Diagrama de flujo animado con su propio editor: energía, agua, gas o calor",
+                        "pl": "Animowany diagram przepływu z własnym edytorem: energia, woda, gaz lub ciepło",
+                        "uk": "Анімована діаграма потоків із власним редактором: енергія, вода, газ або тепло",
+                        "zh-cn": "带有自己设计器的动画流图：电、水、燃气或热"
                     },
-                    "icon": "energyflow.svg"
+                    "icon": "flow.svg"
                 }
             ]
         },
@@ -130,19 +134,19 @@
         "adminTab": {
             "singleton": true,
             "name": {
-                "en": "Energy flow",
-                "de": "Energiefluss",
-                "ru": "Поток энергии",
-                "pt": "Fluxo de energia",
-                "nl": "Energiestroom",
-                "fr": "Flux d'énergie",
-                "it": "Flusso di energia",
-                "es": "Flujo de energía",
-                "pl": "Przepływ energii",
-                "uk": "Потік енергії",
-                "zh-cn": "能量流"
+                "en": "Flow",
+                "de": "Fluss",
+                "ru": "Поток",
+                "pt": "Fluxo",
+                "nl": "Stroom",
+                "fr": "Flux",
+                "it": "Flusso",
+                "es": "Flujo",
+                "pl": "Przepływ",
+                "uk": "Потік",
+                "zh-cn": "流"
             },
-            "icon": "energyflow.svg"
+            "icon": "flow.svg"
         }
     },
     "native": {},
@@ -153,8 +157,8 @@
             "type": "channel",
             "common": {
                 "name": {
-                    "en": "Stored energy flow diagrams",
-                    "de": "Gespeicherte Energiefluss-Diagramme"
+                    "en": "Stored diagrams",
+                    "de": "Gespeicherte Diagramme"
                 }
             },
             "native": {}

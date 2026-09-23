@@ -110,7 +110,7 @@ export function hostShim(): {
 } {
     const ids = [...Object.keys(HOSTED), ...JSX_RUNTIMES];
     return {
-        name: 'energyflow-host-shim',
+        name: 'flow-host-shim',
         enforce: 'pre',
         resolveId(source: string, importer?: string): string | null {
             // Not from the shim itself -- there the import has to reach the federated module, which

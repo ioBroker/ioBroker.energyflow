@@ -18,7 +18,7 @@ import {
     Typography,
 } from '@mui/material';
 
-import { BUILTIN_ICONS, ICON_CATEGORIES, renderBuiltinIcon } from '@energyflow/core';
+import { BUILTIN_ICONS, ICON_CATEGORIES, renderBuiltinIcon } from '@flow/core';
 
 import type { EditorContext } from './types';
 

@@ -6,7 +6,7 @@ import React from 'react';
 import { Box, Button, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { Add, Clear, Image as ImageIcon } from '@mui/icons-material';
 
-import type { EnergyFlowConfig, FlowNode, NodeRule } from '@energyflow/core';
+import type { FlowConfig, FlowNode, NodeRule } from '@flow/core';
 
 import { CheckRow, ColorRow, NumberField, Row, Section, SelectRow, TextFieldRow } from './fields';
 import { IconPickerDialog, IconPreview } from './IconPicker';
@@ -14,7 +14,7 @@ import { SourceField } from './SourceField';
 import type { EditorContext } from './types';
 
 interface ExtrasProps {
-    config: EnergyFlowConfig;
+    config: FlowConfig;
     node: FlowNode;
     patch: (values: Partial<FlowNode>) => void;
     context: EditorContext;
@@ -127,12 +127,26 @@ export function ValueDisplayFields(props: ExtrasProps): React.JSX.Element {
                 }
             />
             {node.energyToday ? (
-                <TextFieldRow
-                    label={context.t('insp_energy_today_prefix')}
-                    value={node.energyToday.label}
-                    helperText={context.t('insp_energy_today_hint')}
-                    onChange={label => patch({ energyToday: { label: label ?? '' } })}
-                />
+                <>
+                    <TextFieldRow
+                        label={context.t('insp_energy_today_prefix')}
+                        value={node.energyToday.label}
+                        onChange={label => patch({ energyToday: { ...node.energyToday, label: label ?? '' } })}
+                    />
+                    <SourceField
+                        label={context.t('insp_energy_today_src')}
+                        value={node.energyToday.src}
+                        clearable
+                        context={context}
+                        onChange={src => patch({ energyToday: { ...node.energyToday, src } })}
+                    />
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                    >
+                        {context.t(node.energyToday.src ? 'insp_energy_today_src_hint' : 'insp_energy_today_hint')}
+                    </Typography>
+                </>
             ) : null}
 
             <NumberField

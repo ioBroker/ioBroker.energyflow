@@ -1,5 +1,5 @@
 /**
- * The admin tab "Energy flow".
+ * The admin tab "Flow".
  *
  * `GenericApp` does the ioBroker plumbing -- the socket, the theme admin is in, the language -- and
  * everything else is {@link DiagramManager}.
@@ -10,7 +10,7 @@ import { CssBaseline, Paper } from '@mui/material';
 
 import { AdminConnection, GenericApp, I18n, Loader, type GenericAppProps } from '@iobroker/gui-components';
 
-import translations from '@energyflow/i18n';
+import translations from '@flow/i18n';
 
 import DiagramManager from './DiagramManager';
 
@@ -21,7 +21,7 @@ export default class App extends GenericApp {
         extendedProps.bottomButtons = false;
         // @ts-expect-error the two connection classes differ only in their admin-only methods
         extendedProps.Connection = AdminConnection;
-        extendedProps.adapterName = 'energyflow';
+        extendedProps.adapterName = 'flow';
         super(props, { ...extendedProps, doNotLoadAllObjects: true });
 
         // The dictionary carries a `prefix`, which `extendTranslations` understands and the

@@ -6,15 +6,7 @@
  * values arrive in `this.state.values` keyed `<id>.val`) and inside the device manager (where they
  * come from a `StateContext` subscription).
  */
-import {
-    isSrcConst,
-    isSrcExpr,
-    isSrcSame,
-    isSrcState,
-    type EnergyFlowConfig,
-    type Src,
-    type SrcScaling,
-} from './types';
+import { isSrcConst, isSrcExpr, isSrcSame, isSrcState, type FlowConfig, type Src, type SrcScaling } from './types';
 import { evalExpr, type ExprValue } from './expr';
 
 /** Reads the current value of a state. `null` means "unknown", not "zero". */
@@ -176,7 +168,7 @@ export type TimeGetter = (oid: string) => StateTimes | undefined;
  * @param config the diagram
  * @returns the state ids, in a stable order
  */
-export function collectOids(config: EnergyFlowConfig | undefined): string[] {
+export function collectOids(config: FlowConfig | undefined): string[] {
     const ids = new Set<string>();
     if (!config) {
         return [];
@@ -188,6 +180,8 @@ export function collectOids(config: EnergyFlowConfig | undefined): string[] {
         for (const badge of node.badges || []) {
             walkSrc(badge.src, id => ids.add(id));
         }
+        walkSrc(node.colorScale?.src, id => ids.add(id));
+        walkSrc(node.energyToday?.src, id => ids.add(id));
         // A click action that writes or charts a state has to be subscribed too: `toggle` needs the
         // current value to know what to write, and `chart` needs the id to be resolvable
         if (node.action?.oid && (node.action.type === 'toggle' || node.action.type === 'chart')) {

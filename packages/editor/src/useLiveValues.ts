@@ -9,7 +9,7 @@
 import React from 'react';
 import type { Connection } from '@iobroker/gui-components';
 
-import { toNumber, type StateTimes, type TimeGetter, type ValueGetter } from '@energyflow/core';
+import { toNumber, type StateTimes, type TimeGetter, type ValueGetter } from '@flow/core';
 
 /** How often "12 minutes ago" is recomputed while a diagram shows one */
 const CLOCK_MS = 30000;
@@ -74,9 +74,7 @@ export function useLiveStates(
             }, 120);
         };
 
-        socket
-            .subscribeState(ids, onChange)
-            .catch(error => console.warn(`energyflow: cannot subscribe: ${String(error)}`));
+        socket.subscribeState(ids, onChange).catch(error => console.warn(`flow: cannot subscribe: ${String(error)}`));
 
         return () => {
             cancelled = true;

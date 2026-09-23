@@ -1,5 +1,5 @@
 /**
- * The configuration model of an energy flow diagram.
+ * The configuration model of a flow diagram.
  *
  * The model is a **graph**: nodes carry a position, edges connect two nodes. Everything geometric --
  * the path an edge takes, where it attaches to a node, where its label sits -- is *computed* at
@@ -242,8 +242,15 @@ export interface FlowNode extends ValueFormat {
     staleAfter?: number;
     /** Show a key figure of the installation instead of a value of its own */
     kpi?: NodeKpi;
-    /** Show today's energy of the value, integrated by the history adapter, under the value */
-    energyToday?: { label?: string };
+    /**
+     * Show today's energy under the value.
+     *
+     * With `src` it is read from there -- most inverters and meters count the day themselves, and
+     * their own number is the one the user compares with the app of the manufacturer. Without it,
+     * the history adapter integrates the node's value since midnight. A source counts in the unit
+     * its state object declares, in kWh when it declares none.
+     */
+    energyToday?: { label?: string; src?: Src };
     /** Colour the node by a value between two limits, green to red -- a price, a load */
     colorScale?: { src: Src; min: number; max: number };
     /** Content of a `label` node */
@@ -343,7 +350,7 @@ export interface AnimationSettings {
     maxDuration?: number;
 }
 
-export interface EnergyFlowCanvas {
+export interface FlowCanvas {
     /** Width of the coordinate system. The diagram is scaled into whatever box the host gives it. */
     w: number;
     h: number;
@@ -354,7 +361,7 @@ export interface EnergyFlowCanvas {
 }
 
 /** Values inherited by every node and edge that does not override them */
-export interface EnergyFlowDefaults extends ValueFormat {
+export interface FlowDefaults extends ValueFormat {
     animation?: AnimationSettings;
     /** Line width of an edge */
     lineWidth?: number;
@@ -365,31 +372,41 @@ export interface EnergyFlowDefaults extends ValueFormat {
      * Omitted: three quarters of `fontSize`.
      */
     labelSize?: number;
+    /**
+     * What flows through the diagram -- energy, water, gas or heat. It decides nothing at runtime;
+     * the designer uses it for the unit, the dot speed, the wording and the templates it offers.
+     */
+    medium?: 'energy' | 'water' | 'gas' | 'heat';
+    /**
+     * Where the value of a connection goes: `beside` the line as text with a halo, or in a `chip`
+     * -- a rounded tag sitting on the line, which reads on any background
+     */
+    edgeLabel?: 'beside' | 'chip';
     /** Minutes without an update after which a value counts as stale and its node is dimmed; 0/empty: never */
     staleAfter?: number;
     /** How boxes and lines are drawn, see `styles.ts`; omitted: `normal` */
     style?: 'normal' | 'clean' | 'neo' | 'neon';
 }
 
-export interface EnergyFlowConfig {
+export interface FlowConfig {
     /** Schema version -- bumped whenever `migrate.ts` has to convert an older document */
     v: 1;
-    canvas: EnergyFlowCanvas;
+    canvas: FlowCanvas;
     nodes: FlowNode[];
     edges: FlowEdge[];
-    defaults?: EnergyFlowDefaults;
+    defaults?: FlowDefaults;
 }
 
 /**
  * A diagram stored centrally instead of inside the widget, so that one layout can be used from vis-2
  * and from the device manager at the same time. The host resolves it before rendering.
  */
-export interface EnergyFlowConfigRef {
+export interface FlowConfigRef {
     $ref: string;
 }
 
-export type EnergyFlowConfigOrRef = EnergyFlowConfig | EnergyFlowConfigRef;
+export type FlowConfigOrRef = FlowConfig | FlowConfigRef;
 
-export function isConfigRef(config: EnergyFlowConfigOrRef): config is EnergyFlowConfigRef {
-    return typeof (config as EnergyFlowConfigRef).$ref === 'string';
+export function isConfigRef(config: FlowConfigOrRef): config is FlowConfigRef {
+    return typeof (config as FlowConfigRef).$ref === 'string';
 }

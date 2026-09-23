@@ -5,7 +5,7 @@
  * lives in `DiagramAttribute` of the editor package, which the device manager uses as well; this file
  * only translates between vis-2's attribute contract and that component.
  *
- * **This module is loaded lazily** (see `EnergyFlow.tsx`), and that is not an optimisation to be
+ * **This module is loaded lazily** (see `Flow.tsx`), and that is not an optimisation to be
  * undone: everything the designer needs hangs off it, including the state picker and the colour
  * picker of `@iobroker/gui-components`. vis-2 does not share that package, so it is bundled -- 620 kB
  * of it. A view that only *displays* diagrams must never download that, and it only stays out of the
@@ -14,7 +14,7 @@
 import React from 'react';
 import { I18n } from '@iobroker/gui-components';
 
-import { DiagramAttribute, type EditorContext } from '@energyflow/editor';
+import { DiagramAttribute, type EditorContext } from '@flow/editor';
 import type { RxWidgetInfoCustomComponentProperties, WidgetData } from '@iobroker/types-vis-2';
 
 import { I18N_PREFIX } from './Generic';

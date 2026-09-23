@@ -4,7 +4,7 @@
  * The core reports codes, because it has no dictionary; the designer's paste box and the admin tab's
  * file import both turn them into the same sentences here.
  */
-import type { ImportErrorCode } from '@energyflow/core';
+import type { ImportErrorCode } from '@flow/core';
 
 import type { EditorContext } from './types';
 
