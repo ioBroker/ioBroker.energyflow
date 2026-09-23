@@ -350,6 +350,8 @@
     "timestamp_ts": "Letzte Aktualisierung",
     "widget_help": "Frei anordenbares, animiertes Energiefluss-Diagramm. Im Designer Erzeuger, Verbraucher und Speicher platzieren.",
     "widget_label": "Energiefluss-Diagramm",
+    "dlg_maximize": "Maximieren",
+    "dlg_restore": "Verkleinern",
     "widget_not_configured": "Noch kein Diagramm. Designer in den Widget-Einstellungen öffnen.",
     "widget_not_configured_short": "Noch kein Diagramm",
     "wizard_create": "Mit %s Datenpunkten erstellen",

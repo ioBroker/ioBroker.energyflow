@@ -11,7 +11,7 @@
  */
 import React from 'react';
 import { Box, Dialog, DialogContent, DialogTitle, IconButton, Typography } from '@mui/material';
-import { Close, OpenInFull } from '@mui/icons-material';
+import { Close, CloseFullscreen, OpenInFull } from '@mui/icons-material';
 import WidgetGeneric, {
     AdapterReact,
     type WidgetGenericProps,
@@ -84,6 +84,8 @@ interface EnergyFlowDmState extends WidgetGenericState {
     /** Bumped when recorded values for the charts have arrived */
     efHistory: number;
     efDialogOpen: boolean;
+    /** The full view fills the screen; a diagram is wide and the dialog's own size wastes half of it */
+    efDialogFull: boolean;
     efAnimate: boolean;
     /** The referenced diagram, as last delivered by its state, with the id it belongs to */
     efStored: { id: string; config: EnergyFlowConfig | null } | null;
@@ -191,6 +193,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
             ...this.state,
             efValues: {},
             efDialogOpen: false,
+            efDialogFull: false,
             efAnimate: true,
             efStored: null,
             efUnits: 0,
@@ -516,21 +519,35 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         if (!this.state.efDialogOpen) {
             return null;
         }
+        const full = this.state.efDialogFull;
         return (
             <Dialog
                 open
                 fullWidth
                 maxWidth="lg"
+                fullScreen={full}
                 onClose={() => this.setState({ efDialogOpen: false })}
             >
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     {this.props.settings?.name || this.state.name || t('set_label')}
-                    <IconButton onClick={() => this.setState({ efDialogOpen: false })}>
-                        <Close />
-                    </IconButton>
+                    <Box>
+                        <IconButton
+                            title={t(full ? 'dlg_restore' : 'dlg_maximize')}
+                            onClick={() => this.setState({ efDialogFull: !full })}
+                        >
+                            {full ? <CloseFullscreen /> : <OpenInFull />}
+                        </IconButton>
+                        <IconButton onClick={() => this.setState({ efDialogOpen: false })}>
+                            <Close />
+                        </IconButton>
+                    </Box>
                 </DialogTitle>
-                <DialogContent>
-                    <Box sx={{ height: { xs: 320, sm: 420, md: 520 } }}>{this.efDiagram(false)}</Box>
+                {/* Maximized, the diagram gets everything the dialog has; otherwise a fixed slice of
+                    the window, because a `Dialog` grows with its content and would otherwise collapse */}
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <Box sx={{ flex: 1, minHeight: 0, height: full ? undefined : { xs: 320, sm: 420, md: '65vh' } }}>
+                        {this.efDiagram(false)}
+                    </Box>
                 </DialogContent>
             </Dialog>
         );

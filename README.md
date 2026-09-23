@@ -178,24 +178,6 @@ Three things this relies on:
 
 The component brings its own translations, so nothing else has to be registered.
 
-## Compared with `iobroker.energiefluss-erweitert`
-
-This is a rebuild of the same idea, so the differences are worth being explicit about.
-
-| | energiefluss-erweitert | this |
-|---|---|---|
-| Where it runs | Its own web app in an iframe | A real vis-2 widget and a device-manager card |
-| Where the configuration lives | In the adapter, per instance | Stored centrally and edited in the admin tab — or inside the widget, so it travels with a view export |
-| Connections | Paths drawn by hand and stored as SVG; moving a node invalidates them | Computed from the two nodes on every render; moving a node is free |
-| Bidirectional flows | Two states and two elements | One signed state |
-| Unit conversion | A switch per element | Derived from the unit |
-| Arithmetic | A fixed list of cases | A small formula language |
-| Sizing | Fixed pixels | Scaled by `viewBox` |
-| CPU when idle | A manual "low performance" switch | Paused automatically |
-| Reaches the device manager | No | Yes |
-
-Its configurations can be imported — see below.
-
 ### Bringing an existing diagram over
 
 Paste the content of the `energiefluss-erweitert.0.configuration` state into the designer's **`< >`**
@@ -229,7 +211,6 @@ packages/core/       model, value resolution, geometry, SVG renderer — no MUI,
 packages/editor/     the designer (MUI + @iobroker/gui-components)
 packages/i18n/       the dictionary, used by both bundles
 examples/            complete diagrams to import; `npm test` checks they stay valid
-test/fixtures/       the default layout of energiefluss-erweitert, the importer's test input
 src-widgets/         the vis-2 widget set   -> widgets/energyflow/
 src-dm-widgets/      the devices plugin     -> admin/dm-widgets/
 src-admin/           the admin tab          -> admin/tab.html + admin/tab-assets/

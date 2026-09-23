@@ -350,6 +350,8 @@
     "timestamp_ts": "Last update",
     "widget_help": "Freely arrangeable, animated energy flow diagram. Open the designer to place producers, consumers and storage.",
     "widget_label": "Energy flow diagram",
+    "dlg_maximize": "Maximize",
+    "dlg_restore": "Restore size",
     "widget_not_configured": "No diagram yet. Open the designer in the widget settings.",
     "widget_not_configured_short": "No diagram yet",
     "wizard_create": "Create with %s states",
