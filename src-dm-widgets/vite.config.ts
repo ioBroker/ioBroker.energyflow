@@ -92,6 +92,7 @@ const config = {
             remotes: {},
             shared: shared(),
             dts: false,
+            shareStrategy: 'loaded-first',
         }),
         react(),
     ],

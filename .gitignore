@@ -9,3 +9,4 @@ src-widgets/build/
 src-dm-widgets/build/
 *.log
 .DS_Store
+*.tgz
