@@ -240,8 +240,35 @@ up only as a widget that does not appear.
   - `url` must start with `./` to escape the adapter-relative default — `./adapter/energyflow/dm-widgets/customDevices.js`;
   - `name` is `<remote alias>/<exposed module>/<exported name>`, here `energyflow/Config/Designer`. The
     alias is `energyflow` on purpose, matching what `pluginLoader.ts` already registered;
+  - the exposed module is read as `(await loadRemote(...)).default[<exported name>]` -- by the copy of
+    `ConfigCustom` inside the device manager as well as by the current `@iobroker/json-config`. So
+    `Config.tsx` **must** have a default export holding the components; with named exports only, the
+    dialog shows "Component energyflow/Config/Designer not found ... Found:" and nothing else;
   - `guiApi: 2` declares React 19 / MUI 9. `@iobroker/json-config` also sniffs `mf-manifest.json` and
     refuses a bundle that shares `@iobroker/adapter-react-v5`.
+- **The size field is the widget's, if it wants the big one.** The host prepends `size` with 1x1,
+  2x1 and 2x1/2 only; `2x2` exists but its own widgets declare it themselves, so `getConfigSchema()`
+  repeats the field with the fourth option. The host then dispatches `2x0.5` to `renderWide()`,
+  `2x1` to `renderWideTall()` and `2x2` to **`renderHuge()`** -- a method `@iobroker/dm-widgets`
+  2.0.1 does not declare yet, so it overrides nothing and has to be written out.
+- **A tile is square, and the settings button is part of it.** `renderSettingsButton()` comes from
+  the host as an element in the flow: a card that lets it follow the content is 145 x 167 in a grid
+  of 145 x 145 tiles, and the button hangs below the frame. The card itself carries the
+  `aspectRatio`, the content is absolutely positioned inside it, and the button is laid over the
+  bottom edge.
+- **The icon of the catalogue entry is resolved against `admin/dm-widgets/`**, not the adapter root:
+  `common.deviceWidgets.components[].icon` must name a file that `tasks.ts` copies there.
+- **The host does not share React through federation.** Its own bundle shares nothing at all; it
+  publishes the instances it renders with on `window.__iobrokerShared__` (`react`, `react-dom`,
+  `@mui/material`, `@mui/icons-material`, `@iobroker/gui-components`, `moment`), which is what
+  `@iobroker/dm-widgets` means by "Host's React instance -- use this instead of importing 'react'".
+  A plugin that just imports `react` gets whatever the shared scope holds, and with a second widget
+  plugin on the page that is *its* bundled copy: the hooks then run against a React that is not
+  rendering the tree and the widget dies with `Cannot read properties of null (reading 'useContext')`.
+  `src-dm-widgets/hostShim.ts` therefore routes `react`, `react-dom`, the JSX runtime and
+  `@mui/material` through a shim that prefers the host's instance. The federated module stays the
+  fallback, because the same bundle's `./Config` is also loaded by an adapter's configuration page,
+  where that global does not exist but the admin *does* register its React as a singleton.
 - `getConfigSchema()` is typed against `@iobroker/dm-utils`, not `@iobroker/json-config` — the base
   class in `@iobroker/dm-widgets` uses that copy of the schema types, and the two are unrelated
   declarations to TypeScript.
@@ -252,6 +279,14 @@ up only as a widget that does not appear.
 `@iobroker/json-config`, so the same `type: 'custom'` item works there (the README has the snippet).
 Two consequences for that file:
 
+- **How a value is written back depends on `props.custom`**, exactly as `ConfigGeneric` of
+  `@iobroker/json-config` does it: a per-object *custom settings* page takes `onChange(attr, value)`,
+  every other form -- an adapter's configuration page and the device manager's widget settings --
+  expects the whole `data` object back: `onChange({ ...data, [attr]: value })`. Handed only the
+  attribute, those forms store nothing and merely light up the save button; a diagram chosen in the
+  device manager fell back to "in this widget" and was gone after saving. The third argument is a
+  callback for `oContext.forceUpdate([attr], data)`, without which this item keeps rendering the
+  value it was mounted with.
 - It **registers its own translations** at module load. The devices plugin loader does it beforehand,
   an adapter's config page does not, and without it the designer renders raw `energyflow_*` keys.
 - The `url` must keep its leading `./`. `ConfigCustom` resolves a bare path against *the adapter being

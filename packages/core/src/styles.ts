@@ -38,7 +38,11 @@ export interface DiagramStyle {
     glow: boolean;
     /** A circle shows its level as an arc along its outline -- a gauge -- instead of filling up */
     levelRing: boolean;
-    /** A filled, rounded panel behind the whole diagram, unless the diagram sets a background */
+    /**
+     * The diagram's own background is drawn as a rounded panel. Only its shape: a diagram without a
+     * background of its own stays transparent in every style, so it sits on the page, the widget or
+     * the dialog it was put into rather than on a grey box of its own.
+     */
     panel: boolean;
     /** An arrowhead where the energy arrives, instead of one in the middle when the dots stand still */
     arrowAtEnd: boolean;

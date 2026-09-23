@@ -6,6 +6,7 @@ import { federation } from '@module-federation/vite';
 import { moduleFederationShared } from '@iobroker/dm-widgets/modulefederation.devices.config.js';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { hostShim } from './hostShim';
 
 /**
  * The device manager plugin bundle.
@@ -77,6 +78,8 @@ const packages = fileURLToPath(new URL('../packages', import.meta.url));
 
 const config = {
     plugins: [
+        // Before everything else: React and MUI have to come from the host, see `hostShim.ts`
+        hostShim(),
         federation({
             manifest: true,
             name: 'energyflowDevices',

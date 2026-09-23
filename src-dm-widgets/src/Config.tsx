@@ -66,7 +66,7 @@ function t(key: string, ...args: (string | number)[]): string {
 }
 
 export function Designer(props: DesignerProps): React.JSX.Element {
-    const { data, attr, onChange, socket, theme, themeType } = props;
+    const { data, attr, onChange, custom, oContext, socket, theme, themeType } = props;
 
     // `attr` is the key of this item in the schema; falling back to 'diagram' keeps the component
     // usable if it is ever embedded under a different name
@@ -84,15 +84,40 @@ export function Designer(props: DesignerProps): React.JSX.Element {
         [socket, theme, themeType],
     );
 
+    /**
+     * Hand a new value to the form. Which shape it wants depends on `custom`, and `ConfigGeneric`
+     * of `@iobroker/json-config` does exactly this dance: a per-object custom settings page takes
+     * `(attr, value)`, every other form -- an adapter's configuration page and the device manager's
+     * widget settings -- expects the caller to write into `data` and hand the whole object back.
+     * Called with the attribute alone, those forms store nothing and only light up the save button:
+     * that is why a chosen diagram fell back to "in this widget" and was gone after saving.
+     *
+     * `forceUpdate` re-renders this item with the new `data` afterwards, without which the component
+     * keeps showing the value it was rendered with.
+     */
+    const commit = (next: unknown): void => {
+        if (custom) {
+            void onChange(key, next, () => oContext?.forceUpdate?.([key], data));
+            return;
+        }
+        const changed = { ...(data as Record<string, unknown>), [key]: next };
+        void onChange(changed, undefined, () => oContext?.forceUpdate?.([key], changed));
+    };
+
     return (
         <DiagramAttribute
             value={stored}
-            onChange={next => void onChange(key, next)}
+            onChange={commit}
             context={editorContext}
         />
     );
 }
 
-// No default export on purpose: `ConfigCustom` picks the component out of the module namespace by the
-// name from the schema (`.../Config/Designer`), and a default export that is a plain object of
-// components would break any loader that unwraps `.default` first.
+/**
+ * The components of this module, **as its default export**: both loaders that render a `custom` item
+ * -- the one in `@iobroker/json-config` and the older copy the device manager carries -- read
+ * `(await loadRemote(...)).default` and index *that* with the name from the schema
+ * (`energyflow/Config/Designer`). A module with only named exports is reported as
+ * "Component ... not found. Found:" with an empty list.
+ */
+export default { Designer };

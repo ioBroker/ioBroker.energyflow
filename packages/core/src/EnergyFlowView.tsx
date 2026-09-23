@@ -997,22 +997,16 @@ export function EnergyFlowView(props: EnergyFlowViewProps): React.ReactElement {
                     </filter>
                 </defs>
             ) : null}
+            {/* No background means none: whatever the widget sits on shows through. A style only
+                decides the shape of the one the diagram brings itself -- a card style rounds it. */}
             {canvas.background ? (
                 <rect
                     x={0}
                     y={0}
                     width={canvas.w}
                     height={canvas.h}
+                    rx={look.panel ? 24 : 0}
                     fill={canvas.background}
-                />
-            ) : look.panel ? (
-                <rect
-                    x={0}
-                    y={0}
-                    width={canvas.w}
-                    height={canvas.h}
-                    rx={24}
-                    fill={drawTheme.background}
                 />
             ) : null}
             {/* Marked, so an image export can leave the editor's grid and handles out */}

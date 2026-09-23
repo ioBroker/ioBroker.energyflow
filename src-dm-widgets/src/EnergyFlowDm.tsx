@@ -134,6 +134,10 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
      * otherwise only knows text fields and checkboxes. `i18n: false` because the dictionary of this
      * adapter is already registered: `pluginLoader.ts` loads `./translations` before it loads this
      * widget, so letting `ConfigCustom` fetch the JSON files again would only duplicate the work.
+     *
+     * `size` repeats a field the host prepends by itself, because the one it prepends offers only
+     * 1x1, 2x1 and 2x1/2. A diagram is the one widget that wants the big square, so the fourth
+     * option is added here -- the host's own widgets that offer it do exactly the same.
      */
     static getConfigSchema(): { name: string; schema: ConfigItemPanel } {
         return {
@@ -141,6 +145,20 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
             schema: {
                 type: 'panel',
                 items: {
+                    size: {
+                        type: 'select',
+                        label: 'wm_Size',
+                        options: [
+                            { value: '1x1', label: '1\u00D71' },
+                            { value: '2x1', label: '2\u00D71' },
+                            { value: '2x0.5', label: '2\u00D7\u00BD' },
+                            { value: '2x2', label: '2\u00D72' },
+                        ],
+                        default: '1x1',
+                        format: 'radio',
+                        horizontal: true,
+                        noTranslation: true,
+                    },
                     diagram: {
                         type: 'custom',
                         url: DESIGNER_URL,
@@ -404,7 +422,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
 
     // --- Rendering ---
 
-    private efDiagram(hideLabels: boolean): React.JSX.Element {
+    private efDiagram(hideLabels: boolean, short?: boolean): React.JSX.Element {
         const config = this.efConfig;
         const theme = this.efTheme();
 
@@ -425,7 +443,7 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                         variant="caption"
                         color="text.secondary"
                     >
-                        {t('widget_not_configured')}
+                        {t(short ? 'widget_not_configured_short' : 'widget_not_configured')}
                     </Typography>
                 </Box>
             );
@@ -518,35 +536,61 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         );
     }
 
-    /** A square card: the diagram as a glyph, no labels, plus the name */
+    /**
+     * A square card: the diagram as a glyph, no labels, plus the name.
+     *
+     * The square is the *card*, not its content, and the settings button is laid over it. It comes
+     * from the host as an element in the flow, so a card that lets it follow the content ends up
+     * taller than every other tile in the grid -- 145 x 167 next to 145 x 145 -- and the button hangs
+     * below the frame it belongs to.
+     */
     renderCompact(): React.JSX.Element {
         return (
             <Box
                 id={String(this.props.widget.id)}
                 className={this.getWidgetClass()}
-                sx={theme => WidgetGeneric.getStyleCompact(theme)}
+                sx={theme => ({ ...WidgetGeneric.getStyleCompact(theme), aspectRatio: '1' })}
             >
                 <Box
                     onClick={() => this.onTileClick()}
                     sx={{
-                        width: '100%',
-                        aspectRatio: '1',
+                        position: 'absolute',
+                        inset: 0,
                         display: 'flex',
                         flexDirection: 'column',
                         cursor: 'pointer',
                         overflow: 'hidden',
                         p: 1,
+                        // Room for the settings button below
+                        pb: 3,
                     }}
                 >
-                    <Box sx={{ flex: 1, minHeight: 0 }}>{this.efDiagram(true)}</Box>
+                    <Box sx={{ flex: 1, minHeight: 0 }}>{this.efDiagram(true, true)}</Box>
                     <Typography
                         variant="caption"
-                        sx={{ fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}
+                        sx={{
+                            fontWeight: 600,
+                            textAlign: 'center',
+                            overflow: 'hidden',
+                            whiteSpace: 'nowrap',
+                            textOverflow: 'ellipsis',
+                        }}
                     >
                         {this.props.settings?.name || this.state.name || t('set_label')}
                     </Typography>
                 </Box>
-                {this.renderSettingsButton()}
+                <Box
+                    sx={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        display: 'flex',
+                        justifyContent: 'center',
+                    }}
+                >
+                    {this.renderSettingsButton()}
+                </Box>
                 {this.efRenderDialog()}
                 {this.efRenderDetail()}
             </Box>
@@ -563,14 +607,29 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
         return this.efRenderWideCard(true);
     }
 
-    private efRenderWideCard(tall: boolean): React.JSX.Element {
+    /**
+     * The 2x2 card: two columns wide and two rows tall, so the diagram gets a square of four tiles.
+     *
+     * The host's `WidgetGeneric` dispatches `size: '2x2'` here; the typings of `@iobroker/dm-widgets`
+     * 2.0.1 do not declare the method yet, which is why it overrides nothing.
+     */
+    renderHuge(): React.JSX.Element {
+        return this.efRenderWideCard(true, true);
+    }
+
+    private efRenderWideCard(tall: boolean, square?: boolean): React.JSX.Element {
         return (
             <Box
                 id={String(this.props.widget.id)}
                 className={this.getWidgetClass()}
-                sx={theme => (tall ? WidgetGeneric.getStyleWideTall(theme) : WidgetGeneric.getStyleWide(theme))}
+                sx={theme => ({
+                    ...(tall ? WidgetGeneric.getStyleWideTall(theme) : WidgetGeneric.getStyleWide(theme)),
+                    // Two columns wide and two rows tall is a square, and the card has to say so:
+                    // nothing else gives it a height
+                    ...(square ? { aspectRatio: '1' } : {}),
+                })}
             >
-                <Box sx={{ position: 'relative', width: '100%', height: '100%', p: 1, overflow: 'hidden' }}>
+                <Box sx={{ position: 'relative', width: '100%', height: '100%', p: 1, pb: 3, overflow: 'hidden' }}>
                     <Box
                         sx={{
                             display: 'flex',
@@ -596,7 +655,19 @@ export class EnergyFlowDm extends WidgetGeneric<EnergyFlowDmState, WidgetEnergyF
                     {/* The header takes a fixed slice of the card; the diagram gets the rest */}
                     <Box sx={{ height: 'calc(100% - 28px)' }}>{this.efDiagram(!tall)}</Box>
                 </Box>
-                {this.renderSettingsButton()}
+                {/* Over the card, not under it -- see `renderCompact` */}
+                <Box
+                    sx={{
+                        position: 'absolute',
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        display: 'flex',
+                        justifyContent: 'center',
+                    }}
+                >
+                    {this.renderSettingsButton()}
+                </Box>
                 {this.efRenderDialog()}
                 {this.efRenderDetail()}
             </Box>
