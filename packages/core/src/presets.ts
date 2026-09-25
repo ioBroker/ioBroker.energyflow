@@ -261,7 +261,7 @@ export function buildPreset(id: PresetId, t: Translator): FlowConfig {
                         kind: 'storage',
                         x: 450,
                         y: 300,
-                        icon: 'cistern',
+                        icon: 'tank',
                         label: t('node_cistern'),
                         // A cistern shows how full it is, which is the number its sensor reports
                         soc: { oid: '' },

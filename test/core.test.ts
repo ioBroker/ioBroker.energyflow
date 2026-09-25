@@ -2246,6 +2246,43 @@ describe('fill levels', () => {
         }
     });
 
+    it('fills the tank icon to its level and leaves the scale where the water is not', () => {
+        const markup = (level?: number | null): string =>
+            renderToStaticMarkup(
+                React.createElement(
+                    'svg',
+                    null,
+                    renderBuiltinIcon('tank', { x: 12, y: 12, size: 24, color: '#000', level }),
+                ),
+            );
+        // Without a level the vessel is empty -- and it is the same vessel, not a second drawing
+        assert.equal((markup(undefined).match(/<rect/g) || []).length, 1);
+        assert.equal((markup(0).match(/<rect/g) || []).length, 1);
+        assert.equal((markup(40).match(/<rect/g) || []).length, 2, 'the vessel and what is in it');
+        // The scale is there whatever the level: it belongs to the vessel
+        assert.equal((markup(40).match(/<path/g) || []).length, 3);
+        // It fills from the bottom: more water starts higher up
+        const top = (level: number): number =>
+            Number(/<rect x="6.9" y="([\d.]+)"/.exec(markup(level))?.[1] ?? Number.NaN);
+        assert.ok(top(25) > top(75), 'a quarter full starts below three quarters full');
+    });
+
+    it('fills the heat buffer to its level and keeps its heat lines while it has none', () => {
+        const markup = (level?: number | null): string =>
+            renderToStaticMarkup(
+                React.createElement(
+                    'svg',
+                    null,
+                    renderBuiltinIcon('heatstorage', { x: 12, y: 12, size: 24, color: '#000', level }),
+                ),
+            );
+        // Nothing known: the vessel with the two heat lines, as it always looked
+        assert.ok(markup(undefined).includes('q1.6 2 0 4'));
+        assert.ok(!markup(60).includes('q1.6 2 0 4'), 'the heat lines give way to what is in it');
+        assert.equal((markup(60).match(/<rect/g) || []).length, 2);
+        assert.equal((markup(0).match(/<rect/g) || []).length, 1);
+    });
+
     it('draws the battery icon with its charge instead of the fixed bar', () => {
         const markup = (level?: number | null): string =>
             renderToStaticMarkup(
@@ -2751,7 +2788,7 @@ describe('what flows', () => {
         assert.deepEqual(water.defaults, { medium: 'water', unit: 'l/min', animation: { refPower: 12 } });
         assert.deepEqual(water.nodes, []);
         // ... and the first node it gets is drawn as that medium draws it
-        assert.equal(defaultIcon('storage', water), 'cistern');
+        assert.equal(defaultIcon('storage', water), 'tank');
         assert.deepEqual(mediumDefaults('energy'), { unit: 'W' });
     });
 
@@ -2764,7 +2801,8 @@ describe('what flows', () => {
         assert.equal(water.defaults?.animation?.refPower, 12);
         // A node that names no icon gets the one of its kind *in that medium*
         assert.equal(defaultIcon('source', water), 'well');
-        assert.equal(defaultIcon('storage', water), 'cistern');
+        // The tank shows its level, which is what a store of water is looked at for
+        assert.equal(defaultIcon('storage', water), 'tank');
         assert.equal(defaultIcon('source', undefined), 'solar');
     });
 
@@ -2948,7 +2986,7 @@ describe('diagram styles', () => {
             ),
             LIGHT_THEME,
         );
-        assert.deepEqual(DIAGRAM_STYLE_IDS, ['normal', 'clean', 'neo', 'neon']);
+        assert.deepEqual(DIAGRAM_STYLE_IDS, ['normal', 'clean', 'neo', 'neon', 'glass']);
     });
 
     it('follows the light or dark mode of the host', () => {

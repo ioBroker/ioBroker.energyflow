@@ -9,6 +9,9 @@
  *
  * `waypoints` on an edge is the escape hatch for the rare case where the computed route is wrong.
  */
+// Type-only, and the one import this file has: the list of styles belongs to `styles.ts`, and a
+// second copy of it here went out of date the first time a style was added
+import type { DiagramStyleId } from './styles';
 
 /** Point in canvas units */
 export interface Point {
@@ -417,7 +420,7 @@ export interface FlowDefaults extends ValueFormat {
     /** Minutes without an update after which a value counts as stale and its node is dimmed; 0/empty: never */
     staleAfter?: number;
     /** How boxes and lines are drawn, see `styles.ts`; omitted: `normal` */
-    style?: 'normal' | 'clean' | 'neo' | 'neon';
+    style?: DiagramStyleId;
 }
 
 export interface FlowConfig {

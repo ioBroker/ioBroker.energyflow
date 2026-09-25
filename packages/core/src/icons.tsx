@@ -29,6 +29,29 @@ export interface IconDefinition {
     level?: { outline: React.ReactElement; x: number; y: number; w: number; h: number };
 }
 
+/**
+ * The scale of a tank: a long mark at half, a short one at each quarter, on the inside of the right
+ * wall.
+ *
+ * Inside, because marks sticking out of the vessel read as the pins of a plug; and thinner than the
+ * rest of the icon, because the group sets one width for everything and marks as heavy as the wall
+ * read as a comb. What is in the tank is drawn over them, which is what a filled gauge looks like.
+ */
+const tankScale = (): React.ReactElement[] =>
+    (
+        [
+            [8.5, 15.6],
+            [12.5, 14.4],
+            [16.5, 15.6],
+        ] as const
+    ).map(([y, from]) => (
+        <path
+            key={y}
+            d={`M${from} ${y} H17.1`}
+            strokeWidth={1.1}
+        />
+    ));
+
 /** Eight rays around the sun, computed so the angles are exact */
 const sunRays = (): React.ReactElement[] =>
     Array.from({ length: 8 }, (_unused, i) => {
@@ -219,6 +242,47 @@ export const BUILTIN_ICONS: Record<string, IconDefinition> = {
             h: 11.7,
         },
     },
+    /**
+     * A tank whose glyph shows what is in it, with a scale beside it. Chosen instead of `cistern`
+     * where the level should be readable at a glance -- the body of a node fills too, but a small
+     * tile shows the icon and little else. Without a level it is the same vessel, empty.
+     */
+    tank: {
+        mode: 'stroke',
+        category: 'storage',
+        label: 'icon_tank',
+        body: (
+            <>
+                <rect
+                    x="5.5"
+                    y="5"
+                    width="13"
+                    height="15"
+                    rx="2.5"
+                />
+                {tankScale()}
+            </>
+        ),
+        level: {
+            outline: (
+                <>
+                    <rect
+                        x="5.5"
+                        y="5"
+                        width="13"
+                        height="15"
+                        rx="2.5"
+                    />
+                    {tankScale()}
+                </>
+            ),
+            // Inside the vessel, a stroke's width away from it on every side
+            x: 6.9,
+            y: 6.4,
+            w: 10.2,
+            h: 12.2,
+        },
+    },
     cistern: {
         mode: 'stroke',
         category: 'storage',
@@ -255,6 +319,24 @@ export const BUILTIN_ICONS: Record<string, IconDefinition> = {
                 <path d="M14.4 8.4 q1.6 2 0 4 q-1.6 2 0 4" />
             </>
         ),
+        // A buffer that says how full it is fills up instead of showing the two heat lines -- the
+        // lines are the drawing's way of saying "there is something warm in here", and a level says
+        // it better. Narrower than the vessel: its corners are round enough to cut a wider fill
+        level: {
+            outline: (
+                <rect
+                    x="6"
+                    y="3"
+                    width="12"
+                    height="18"
+                    rx="4"
+                />
+            ),
+            x: 7.8,
+            y: 4.4,
+            w: 8.4,
+            h: 15.2,
+        },
     },
     grid: {
         mode: 'stroke',

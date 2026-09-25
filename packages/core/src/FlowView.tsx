@@ -162,6 +162,17 @@ function EdgeLayer({
                                 strokeLinecap="round"
                             />
                         ) : null}
+                        {look.tube ? (
+                            // The casing of a pipe: a wider, faint copy under the line, so the line
+                            // itself reads as what runs *inside* it
+                            <path
+                                d={edge.geometry.d}
+                                fill="none"
+                                stroke={withAlpha(edge.color, 0.3)}
+                                strokeWidth={edge.width * look.tube}
+                                strokeLinecap="round"
+                            />
+                        ) : null}
                         <path
                             d={edge.geometry.d}
                             fill="none"
@@ -324,12 +335,14 @@ function NodeShapeBody({
     look,
     shadowId,
     glowId,
+    glassId,
 }: {
     node: NodeRuntime;
     theme: FlowTheme;
     look: DiagramStyle;
     shadowId?: string;
     glowId?: string;
+    glassId?: string;
 }): React.ReactElement {
     // Unique per rendered node, not per node id: two widgets on one page both have a "battery", and
     // a clip path found by id would clip the second one with the first one's outline
@@ -397,10 +410,16 @@ function NodeShapeBody({
 
     return (
         <>
-            {bodyShape({ fill: theme.surface, filter: shadowId ? `url(#${shadowId})` : undefined })}
+            {/* Glass lets the page through: the surface at less than half, and a highlight
+                across the top edge, which is what makes a pane read as a pane */}
+            {bodyShape({
+                fill: look.glass ? withAlpha(theme.surface, theme.mode === 'dark' ? 0.5 : 0.62) : theme.surface,
+                filter: shadowId ? `url(#${shadowId})` : undefined,
+            })}
             {/* The base tint goes under the fill, so the empty part looks like the other nodes rather
                 than like a hole */}
             {bodyShape({ fill: tint })}
+            {glassId ? bodyShape({ fill: `url(#${glassId})` }) : null}
             {/* The fill is drawn inside the body, clipped to its shape, so a battery reads as a
                 container that fills up rather than as a number with a bar next to it. The step from
                 the tint to the fill has to be big enough to read at tile size. */}
@@ -596,6 +615,7 @@ function NodeLayer({
     shadowId,
     glowId,
     iconGlowId,
+    glassId,
 }: {
     nodes: NodeRuntime[];
     theme: FlowTheme;
@@ -606,6 +626,7 @@ function NodeLayer({
     shadowId?: string;
     glowId?: string;
     iconGlowId?: string;
+    glassId?: string;
 }): React.ReactElement {
     return (
         <g className="ef-nodes">
@@ -737,6 +758,7 @@ function NodeLayer({
                             look={look}
                             shadowId={shadowId}
                             glowId={glowId}
+                            glassId={glassId}
                         />
 
                         {look.labelInside ? (
@@ -884,6 +906,7 @@ export function FlowView(props: FlowViewProps): React.ReactElement {
     const glowId = `ef-glow-${filterId}`;
     const lineGlowId = `ef-line-glow-${filterId}`;
     const iconGlowId = `ef-icon-glow-${filterId}`;
+    const glassId = `ef-glass-${filterId}`;
     const dark = drawTheme.mode === 'dark';
 
     return (
@@ -897,6 +920,29 @@ export function FlowView(props: FlowViewProps): React.ReactElement {
             style={{ ...svgProps?.style, ...style }}
         >
             <style>{CSS}</style>
+            {look.glass ? (
+                <defs>
+                    {/* In the bounding box of whatever uses it, so one gradient serves every body */}
+                    <linearGradient
+                        id={glassId}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                    >
+                        <stop
+                            offset="0%"
+                            stopColor="#FFFFFF"
+                            stopOpacity={dark ? 0.1 : 0.5}
+                        />
+                        <stop
+                            offset="55%"
+                            stopColor="#FFFFFF"
+                            stopOpacity={0}
+                        />
+                    </linearGradient>
+                </defs>
+            ) : null}
             {look.shadow === 'soft' ? (
                 <defs>
                     <filter
@@ -1077,6 +1123,7 @@ export function FlowView(props: FlowViewProps): React.ReactElement {
                 shadowId={look.shadow !== 'none' ? shadowId : undefined}
                 glowId={look.glow ? glowId : undefined}
                 iconGlowId={look.glow ? iconGlowId : undefined}
+                glassId={look.glass ? glassId : undefined}
             />
             {hideLabels ? null : (
                 <EdgeLabels

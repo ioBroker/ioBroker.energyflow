@@ -123,8 +123,16 @@ middle, so it is visible *where the line would land* before letting go.
 
 `NodeRuntime.level` (0..100) is how full a node's body is drawn: the state of charge for a storage
 node, otherwise the shown value's amount against `node.levelMax` (in the value's unit, before kW/MW
-scaling). The battery icon shows the same level (`IconDefinition.level` swaps its fixed bar for a
-fill); other icons ignore it. The clip path of the fill is named with `React.useId()`, never the node
+scaling). Three icons show the same level and the rest ignore it (`IconDefinition.level`: an
+outline that replaces the `body`, plus the box inside it that fills from the bottom) -- the
+**battery**, whose fixed bar would read as "almost empty" at 98 %, the **heat buffer**, whose two
+heat lines give way to what is in it, and the **tank**, which is `cistern` without the wave and with
+a scale on the inside of its right wall. The tank is the store of water *and* of gas
+(`MEDIA.<medium>.icons.storage`) and what the cistern template places, because how full it is *is*
+the number a tank is looked at for. Energy and heat keep their own symbol -- a battery is not a
+vessel, and a buffer is recognised by its heat lines -- and show the level inside it instead. It stayed a *separate* icon rather than a change to `cistern`, so a
+node that names that icon explicitly keeps the drawing it was given; only a node that names none
+follows the medium. The clip path of the fill is named with `React.useId()`, never the node
 id -- two widgets on one page share node ids, and a clip path is looked up document-wide.
 
 `SrcSame` (`{ same: 'value', ...scaling }`) is a source that refers to the node's own value, as shown
@@ -644,6 +652,14 @@ against `.async`. The vis-2 widget's sync set should stay around 100 kB.
   never for its name. A new style is an entry there plus a `style_<id>` sentence. `npm run gallery`
   draws every style light and dark -- look at both before calling one done, a shadow that works on
   white can vanish on a dark surface.
+- **`glass` is the one style whose bodies are see-through** (`glass`, `tube`, `lineScale`). The body
+  is the surface colour at about half, with one gradient in the defs laid over every body for the
+  highlight along its top edge -- which is why it carries `panel: true`: on a transparent widget there
+  would be nothing behind the glass, and it would read as flat paint. Its lines are pipes: a faint
+  casing under the line (`tube`, a factor on the width) and the width itself scaled (`lineScale`), the
+  only thing a style says about a document value -- `edgeWidth(edge, config) * look.lineScale` in the
+  runtime, so the user's own `lineWidth` still decides the proportions. It keeps `cards: false`: a
+  valve and a pump are circles in every picture of an installation.
 - **Glow is three filters, not one** (neon). The lines glow as *one* blurred copy of all active lines
   under them, in `userSpaceOnUse` over the canvas -- a straight line has a zero-height box, and a
   region relative to it would be empty; the copy holds no dots, so the running animation does not

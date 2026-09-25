@@ -8,10 +8,10 @@
 import type { FlowTheme } from './theme';
 import type { FlowConfig, NodeKind } from './types';
 
-export type DiagramStyleId = 'normal' | 'clean' | 'neo' | 'neon';
+export type DiagramStyleId = 'normal' | 'clean' | 'neo' | 'neon' | 'glass';
 
 /** In the order the designer offers them */
-export const DIAGRAM_STYLE_IDS: DiagramStyleId[] = ['normal', 'clean', 'neo', 'neon'];
+export const DIAGRAM_STYLE_IDS: DiagramStyleId[] = ['normal', 'clean', 'neo', 'neon', 'glass'];
 
 export interface DiagramStyle {
     id: DiagramStyleId;
@@ -48,6 +48,23 @@ export interface DiagramStyle {
     arrowAtEnd: boolean;
     /** The moving dots in the line colour, or light dots on the coloured line */
     dots: 'line' | 'light';
+    /**
+     * The body is translucent -- the page shows through it -- with a highlight across the top. What
+     * makes a panel look like glass rather than like paint: the background has to be visible, so this
+     * is the one decision that only works on a diagram that has something behind it.
+     */
+    glass: boolean;
+    /**
+     * A line is drawn as a pipe: a wider, faint casing under the line itself. The number is the
+     * factor on the line width; 0 is no casing.
+     */
+    tube: number;
+    /**
+     * A factor on the width of every line. A style that draws pipes needs them thick enough to look
+     * like pipes, and the document's `lineWidth` is set for the normal one -- so this scales what the
+     * user chose instead of replacing it.
+     */
+    lineScale: number;
     /** Adjust the host theme for this style */
     theme: (base: FlowTheme) => FlowTheme;
 }
@@ -67,6 +84,9 @@ const NORMAL: DiagramStyle = {
     panel: false,
     arrowAtEnd: false,
     dots: 'line',
+    glass: false,
+    tube: 0,
+    lineScale: 1,
     theme: base => base,
 };
 
@@ -100,6 +120,9 @@ const CLEAN: DiagramStyle = {
     panel: true,
     arrowAtEnd: true,
     dots: 'light',
+    glass: false,
+    tube: 0,
+    lineScale: 1,
     theme: base =>
         base.mode === 'dark'
             ? {
@@ -145,6 +168,9 @@ const NEO: DiagramStyle = {
     panel: true,
     arrowAtEnd: true,
     dots: 'light',
+    glass: false,
+    tube: 0,
+    lineScale: 1,
     theme: base =>
         base.mode === 'dark'
             ? {
@@ -204,6 +230,9 @@ const NEON: DiagramStyle = {
     panel: true,
     arrowAtEnd: true,
     dots: 'light',
+    glass: false,
+    tube: 0,
+    lineScale: 1,
     theme: base =>
         base.mode === 'dark'
             ? {
@@ -228,7 +257,77 @@ const NEON: DiagramStyle = {
               },
 };
 
-const STYLES: Record<DiagramStyleId, DiagramStyle> = { normal: NORMAL, clean: CLEAN, neo: NEO, neon: NEON };
+/**
+ * Glass: translucent panels over a dark page, lit rims, and lines drawn as pipes.
+ *
+ * The one style whose bodies are see-through, which is why it brings a background of its own: on a
+ * transparent widget there would be nothing behind the glass to show through, and it would read as
+ * flat paint. The accents are cool -- water and its machinery is what this was drawn for -- and the
+ * level of a circle is an arc, so a pump reads as a gauge.
+ */
+const GLASS_KINDS_DARK: Partial<Record<NodeKind, string>> = {
+    source: '#FFC24D',
+    storage: '#35B6FF',
+    grid: '#8B9CFF',
+    sink: '#4FD1FF',
+};
+const GLASS_KINDS_LIGHT: Partial<Record<NodeKind, string>> = {
+    source: '#E08A00',
+    storage: '#0C8FD6',
+    grid: '#5A6BE0',
+    sink: '#0AA6D8',
+};
+const GLASS: DiagramStyle = {
+    id: 'glass',
+    // Not cards: a valve and a pump are circles in every picture of an installation, and turning
+    // them into panels would take the one thing that tells them from a tank
+    cards: false,
+    cardRadius: 20,
+    shadow: 'soft',
+    labelInside: false,
+    iconChip: false,
+    tint: { light: 0.1, dark: 0.18 },
+    outline: 0.7,
+    outlineWidth: 1.8,
+    glow: true,
+    levelRing: true,
+    panel: true,
+    arrowAtEnd: true,
+    dots: 'light',
+    glass: true,
+    tube: 2.4,
+    lineScale: 1.8,
+    theme: base =>
+        base.mode === 'dark'
+            ? {
+                  ...base,
+                  background: '#0A1220',
+                  surface: '#16253C',
+                  border: '#27456B',
+                  text: '#EAF2FF',
+                  textSecondary: '#93A8C6',
+                  idle: '#2A3A55',
+                  kinds: { ...base.kinds, ...GLASS_KINDS_DARK },
+              }
+            : {
+                  ...base,
+                  background: '#E9F1FA',
+                  surface: '#FFFFFF',
+                  border: '#C8DAEC',
+                  text: '#10233A',
+                  textSecondary: '#556B86',
+                  idle: '#B9CADC',
+                  kinds: { ...base.kinds, ...GLASS_KINDS_LIGHT },
+              },
+};
+
+const STYLES: Record<DiagramStyleId, DiagramStyle> = {
+    normal: NORMAL,
+    clean: CLEAN,
+    neo: NEO,
+    neon: NEON,
+    glass: GLASS,
+};
 
 /**
  * The style a diagram is drawn in.

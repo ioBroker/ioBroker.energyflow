@@ -76,8 +76,9 @@ export const MEDIA: Record<MediumId, Medium> = {
         storageUnit: '%',
         accent: '#2F6FED',
         // The house connection is where the mains arrive -- the meter is a thing of its own, and
-        // sits in the line rather than at its end
-        icons: { source: 'well', sink: 'house', storage: 'cistern', grid: 'pipe' },
+        // sits in the line rather than at its end. A store of water is the tank that shows what is in
+        // it: how full it is *is* its number, and a glyph that says so beats a wave that never moves
+        icons: { source: 'well', sink: 'house', storage: 'tank', grid: 'pipe' },
     },
     gas: {
         id: 'gas',
@@ -88,7 +89,8 @@ export const MEDIA: Record<MediumId, Medium> = {
         threshold: 0.02,
         storageUnit: '%',
         accent: '#E0901A',
-        icons: { source: 'flame', sink: 'house', storage: 'cistern', grid: 'meter' },
+        // The same tank as the water one: a gas store is read as how full it is, and its glyph says so
+        icons: { source: 'flame', sink: 'house', storage: 'tank', grid: 'meter' },
     },
     heat: {
         id: 'heat',

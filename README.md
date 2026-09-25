@@ -69,7 +69,8 @@ that move faster the more power there is.
   dryer, fridge, freezer, oven, cooktop, microwave, coffee machine, TV, server, pool, light — plus
   "all consumers" for the sum of a house. For water: well, rain, cistern, pipe, water meter, flow
   sensor, valve, filter, pump, sprinkler, shower, basin, tap and pond. Any image of your own works too (URL or data
-  URI).
+  URI). Two of them show a level rather than a fixed mark — the battery its charge, the **tank** what
+  is in it, water rising past the scale on its wall.
 - **The palette follows the medium.** A water installation is not built from "a bus": the designer
   offers a source, a tank, the house connection, a consumer — and, for the things that sit *in* the
   pipe, a meter, a flow sensor, a pump, a valve and a plain junction, each with the right symbol. An

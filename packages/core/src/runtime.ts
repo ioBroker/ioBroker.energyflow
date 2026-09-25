@@ -30,7 +30,7 @@ import { sourceMax, sourceUnit, type MaxGetter, type UnitGetter } from './units'
 import { HISTORY_PERIODS, sparklinePaths, type HistoryGetter } from './history';
 import { autarky, firstMatchingRule, rawText, scaleColor, selfConsumption } from './rules';
 import { mediumOf } from './media';
-import { styledTheme } from './styles';
+import { diagramStyle, styledTheme } from './styles';
 import { hasTemplate, renderTemplate } from './template';
 import { computeHydraulics, hydraulicNodes, type HydraulicFlow } from './hydraulics';
 import { resolveSrc, srcOids, type TimeGetter, type ValueGetter } from './values';
@@ -322,6 +322,8 @@ export function computeRuntime(
     // The diagram's style adjusts the host theme; node and line colours come from the adjusted one,
     // which is also the one the renderer draws with
     const theme = styledTheme(hostTheme, config);
+    // The same style the renderer draws with: it decides one thing here, how thick a line is
+    const look = diagramStyle(config);
     const { units, maxima, times, history, raw, energy } = options;
     const chipLabels = config.defaults?.edgeLabel === 'chip';
     const medium = mediumOf(config);
@@ -482,7 +484,7 @@ export function computeRuntime(
             active,
             color: active ? litColor : muteColor(litColor, theme),
             inheritsColor: !edge.color && !(direction < 0 && edge.colorReverse),
-            width: edgeWidth(edge, config),
+            width: edgeWidth(edge, config) * look.lineScale,
             geometry,
             valueText,
             labelPos: offsetFromLine(geometry.mid, geometry.midDir, labelDistance),
