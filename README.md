@@ -44,17 +44,39 @@ that move faster the more power there is.
   battery icon at that level.
 - **Values that fit.** A value too long for its box — "-1.800,00 W" in a small one — is set smaller
   instead of running over the edge.
-- **Energy, water, gas or heat.** One setting says what flows, and with it come the unit, the speed
-  of the dots, the words in the designer ("source" instead of "producer") and the templates: a water
-  meter with house and garden, or rain water in a cistern beside the mains. Everything it sets stays
-  editable, and a diagram that says nothing is an energy diagram — as every one written so far is.
+- **Energy, water, gas or heat.** A new diagram is asked what it carries, and with that come the unit, the speed
+  of the dots, the value below which a line is idle, the words in the designer ("source" instead of
+  "producer"), what the assistant searches for, and the templates — a water meter with house and
+  garden, rain water in a cistern, a gas meter with heating and stove, a heat pump filling a buffer.
+  Everything it sets stays editable, and a diagram that says nothing is an energy diagram — as
+  every one written so far is.
+- **The diagram works the flow out.** Switch it on and the lines need no state of their own: a shut
+  valve or a standing pump stops the flow, an empty tank gives nothing, a pump pushes the way it is
+  drawn, and a flow sensor says how much — which is then divided over the branches: two taps behind
+  one pump get half each, or exactly what they read if they read anything, or one part against two
+  where one of their valves is only half open. A ring works too: fed from one end both halves carry
+  half, fed from both ends the two flows meet somewhere in the middle and that pipe carries nothing.
+  What a person reading the picture would say — which tank feeds the tap and which branch is shut off —
+  the diagram now says by itself.
+- **A caption that says something.** The text of a caption may carry placeholders: `{{ val }}` is the
+  value of a state, `{{ ts }}` when it was last written ("5 minutes ago"), `{{ unit }}` its unit, and
+  `{{ 0_userdata.0.x.val }}` any other state. It may compute as well: `{{ val * 10 }}`.
 - **Values on the lines, your way.** Next to the line, or in a rounded chip sitting on it — one
   setting for the whole diagram.
-- **Icons for what is actually in a house.** Around forty drawn ones: photovoltaics, wind, water
+- **Icons for what is actually in a house.** Over fifty drawn ones: photovoltaics, wind, water
   power, battery and heat store, grid, meter, wallbox and car, heat pump, radiator, electric heater,
   air conditioner, ventilation, fan, water pump, water heater, washing machine, dishwasher, tumble
   dryer, fridge, freezer, oven, cooktop, microwave, coffee machine, TV, server, pool, light — plus
-  "all consumers" for the sum of a house. Any image of your own works too (URL or data URI).
+  "all consumers" for the sum of a house. For water: well, rain, cistern, pipe, water meter, flow
+  sensor, valve, filter, pump, sprinkler, shower, basin, tap and pond. Any image of your own works too (URL or data
+  URI).
+- **The palette follows the medium.** A water installation is not built from "a bus": the designer
+  offers a source, a tank, the house connection, a consumer — and, for the things that sit *in* the
+  pipe, a meter, a flow sensor, a pump, a valve and a plain junction, each with the right symbol. An
+  energy diagram keeps the palette it always had.
+- **A valve is open or closed, and you can see it.** A valve and a pump are placed ready to take a
+  state: a boolean reads as "open"/"closed", a percentage as the number it is, and either way the
+  element carries the colour of its medium while it is on and turns grey at zero.
 - **Rules.** "Below 20 % red and blinking", "status Error in red": colour, icon and blinking follow the
   value; the first rule that matches wins, and the lines take the colour along.
 - **Status texts.** A state such as an inverter mode is shown as text, optionally translated
@@ -115,8 +137,12 @@ The adapter adds a tab **Flow** to the admin. It lists the stored diagrams and e
 same designer, full page. A diagram saved there reaches every vis-2 widget and every device-manager card
 that shows it the moment you press save — no reload, no vis editor.
 
-Stored diagrams live as states `flow.0.diagrams.<id>`, one per diagram, holding the document as
-JSON. That is also why they can be backed up, restored and scripted like any other state.
+A switch in the toolbar saves by itself, ten seconds after the last change — a whole afternoon of
+dragging without touching the save button. It is a preference of the browser it was switched on in.
+
+Stored diagrams live as objects `flow.0.diagrams.<id>`, one per diagram, of type `config` with the
+document in `native.flow`. That is also why they can be backed up, restored and scripted like any
+other object.
 
 ### Export and import
 

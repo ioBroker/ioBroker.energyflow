@@ -188,6 +188,13 @@ export interface NodeBadge extends ValueFormat {
     src: Src;
     /** Prefix, e.g. "today" */
     label?: string;
+    /**
+     * Words for the raw state value instead of a number: `{ true: 'open', false: 'closed' }`. An
+     * extra value is a switch as often as it is a number -- "1,00 l/min" under a node is nonsense
+     * for a valve -- and the map is looked up with the raw value, exactly as `FlowNode.textMap` is.
+     * A value the map does not name still shows as a number, so half a map is not a trap.
+     */
+    textMap?: Record<string, string>;
 }
 
 export interface FlowNode extends ValueFormat {
@@ -233,10 +240,19 @@ export interface FlowNode extends ValueFormat {
     /** Rules that change colour, icon or blinking with the value; the first that matches wins */
     rules?: NodeRule[];
     /**
-     * Show the state's value as text instead of as a number -- a status such as "Charging". With
-     * `textMap`, raw values are translated first: `{ "0": "Off", "1": "Charging" }`.
+     * What the node shows where its number would be.
+     *
+     * `text` is the raw state value as it is -- a status such as "Charging" -- and `none` is nothing
+     * at all: the node is then its symbol and its label, and the symbol moves into the middle. The
+     * value is still read either way, because rules, the fill level, the key figures and the worked
+     * out flow all use it; only the line under the icon goes away.
      */
-    display?: 'number' | 'text';
+    display?: 'number' | 'text' | 'none';
+    /**
+     * Words for the raw state value: `{ "0": "Off", "1": "Charging" }`. A hit wins over the number,
+     * whatever `display` says -- a map that is ignored because a second field says "number" is a
+     * trap, and "1,00 l/min" for a valve is nonsense. `switchTextMap` writes the two of a switch.
+     */
     textMap?: Record<string, string>;
     /** Minutes without an update after which the value counts as stale; overrides `defaults.staleAfter` */
     staleAfter?: number;
@@ -255,6 +271,11 @@ export interface FlowNode extends ValueFormat {
     colorScale?: { src: Src; min: number; max: number };
     /** Content of a `label` node */
     text?: string;
+    /**
+     * What this element does to what flows through it, when the diagram works its flows out itself.
+     * Left out it follows the kind and the symbol, see `defaultRole` in `hydraulics.ts`.
+     */
+    hydraulic?: 'supply' | 'store' | 'gate' | 'driver' | 'meter' | 'demand' | 'pass';
     /** Font size of the value, in canvas units */
     fontSize?: number;
     /** Where the icon goes: above the value, or left of it. Omitted: left in a wide, low box, else above */
@@ -320,6 +341,12 @@ export interface FlowEdge extends ValueFormat {
     hideWhenIdle?: boolean;
     /** Print the value next to the line */
     showValue?: boolean;
+    /**
+     * Words for the raw state value instead of the amount, exactly as `FlowNode.textMap`: a line
+     * whose state is a switch reads "on" rather than "1.00 l/min". Only the label changes -- the
+     * number still decides the direction, the threshold and how fast the dots run.
+     */
+    textMap?: Record<string, string>;
     curve?: EdgeCurve;
     /**
      * Where the middle segment of an `orthogonal` route runs, as a fraction of the way from the start
@@ -363,6 +390,11 @@ export interface FlowCanvas {
 /** Values inherited by every node and edge that does not override them */
 export interface FlowDefaults extends ValueFormat {
     animation?: AnimationSettings;
+    /**
+     * Work out from the elements which line carries something, instead of asking for a state per
+     * line. See `hydraulics.ts`; only lines without a reading of their own are touched.
+     */
+    hydraulics?: boolean;
     /** Line width of an edge */
     lineWidth?: number;
     /** Font size of node values, in canvas units */

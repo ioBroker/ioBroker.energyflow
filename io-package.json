@@ -154,7 +154,7 @@
     "instanceObjects": [
         {
             "_id": "diagrams",
-            "type": "channel",
+            "type": "folder",
             "common": {
                 "name": {
                     "en": "Stored diagrams",

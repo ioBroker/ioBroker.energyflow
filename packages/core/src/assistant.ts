@@ -1,8 +1,12 @@
 /**
- * A first diagram from the installation's own states: find what reports power, guess what it is, lay
+ * A first diagram from the installation's own states: find what reports a flow, guess what it is, lay
  * it out. The guess is only a start -- the assistant shows every candidate with its guess, and the
  * user decides -- but it turns "an empty canvas and 4000 states" into "untick two lines".
+ *
+ * Everything here asks the medium of the diagram it is building. A water meter reports `l/min` and is
+ * called a Hausanschluss, not a Netz; searching it for watts would find nothing at all.
  */
+import { mediumDefaults, type MediumId } from './media';
 import { uniqueId } from './model';
 import type { FlowConfig, FlowEdge, FlowNode } from './types';
 
@@ -10,26 +14,75 @@ import type { FlowConfig, FlowEdge, FlowNode } from './types';
 export type DeviceKind = 'source' | 'grid' | 'storage' | 'sink';
 
 /**
- * Keywords per kind, checked against id and name in this order -- the battery before the grid, because
- * a battery's "grid charging" state is still the battery's
+ * Keywords per kind and medium, checked against id and name in this order -- the battery before the
+ * grid, because a battery's "grid charging" state is still the battery's, and the cistern before the
+ * water meter for the same reason.
  */
-const KEYWORDS: [DeviceKind, RegExp][] = [
-    ['storage', /batt|akku|speicher|storage/],
-    ['source', /(^|[._\s-])pv|solar|photovolt|mppt|erzeug|production|generation|yield|ertrag/],
-    ['grid', /grid|netz|meter|zaehler|zähler|bezug|einspeis|feed|smartmeter|obis/],
-    [
-        'sink',
-        /wallbox|charger|ladepunkt|evcc|(^|[._\s-])(car|auto|last)([._\s-]|$)|fahrzeug|heatpump|heat.pump|wärmepumpe|waermepumpe|house|haus|consum|verbrauch|load/,
+const KEYWORDS: Record<MediumId, [DeviceKind, RegExp][]> = {
+    energy: [
+        ['storage', /batt|akku|speicher|storage/],
+        ['source', /(^|[._\s-])pv|solar|photovolt|mppt|erzeug|production|generation|yield|ertrag/],
+        ['grid', /grid|netz|meter|zaehler|zähler|bezug|einspeis|feed|smartmeter|obis/],
+        [
+            'sink',
+            /wallbox|charger|ladepunkt|evcc|(^|[._\s-])(car|auto|last)([._\s-]|$)|fahrzeug|heatpump|heat.pump|wärmepumpe|waermepumpe|house|haus|consum|verbrauch|load/,
+        ],
     ],
-];
+    water: [
+        ['storage', /zisterne|cistern|regenwasser|(^|[._\s-])tank([._\s-]|$)|speicher/],
+        ['source', /brunnen|well|quelle|spring|regen|rain|bohrloch/],
+        [
+            'grid',
+            /wasserz[aä]hler|wasseruhr|watermeter|hausanschluss|stadtwasser|trinkwasser|mains|z[aä]hler|zaehler|meter/,
+        ],
+        [
+            'sink',
+            /dusche|shower|(^|[._\s-])bad([._\s-]|$)|bath|(^|[._\s-])wc([._\s-]|$)|toilet|garten|garden|bew[aä]sser|irrigation|sprinkler|pool|k[uü]che|kitchen|wasch|washer|sp[uü]l|dishwasher|verbrauch|consum/,
+        ],
+    ],
+    gas: [
+        ['storage', /fl[uü]ssiggas|lpg|gastank|(^|[._\s-])tank([._\s-]|$)/],
+        ['source', /biogas|eigenerzeug/],
+        ['grid', /gasz[aä]hler|gasuhr|gasmeter|hausanschluss|z[aä]hler|zaehler|meter|(^|[._\s-])gas([._\s-]|$)/],
+        ['sink', /heizung|therme|kessel|boiler|brenner|herd|stove|kamin|ofen|heating/],
+    ],
+    heat: [
+        ['storage', /puffer|buffer|schichtspeicher|w[aä]rmespeicher|warmwasserspeicher|speicher/],
+        [
+            'source',
+            /w[aä]rmepumpe|waermepumpe|heatpump|heat.pump|solarthermie|kollektor|kessel|therme|brenner|bhkw|(^|[._\s-])chp([._\s-]|$)/,
+        ],
+        ['grid', /fernw[aä]rme|nahw[aä]rme|district/],
+        [
+            'sink',
+            /heizkreis|heizk[oö]rper|radiator|fu[sß]boden|heizung|heating|warmwasser|hot.?water|(^|[._\s-])dhw([._\s-]|$)|zirkulation/,
+        ],
+    ],
+};
 
-/** Units a power state is written in */
-const POWER_UNITS = ['W', 'kW', 'MW'];
+/**
+ * The units a flow of a medium is written in. A unit is the one thing about a state that is not a
+ * guess, so it decides who is a candidate at all.
+ */
+const FLOW_UNITS: Record<MediumId, string[]> = {
+    energy: ['w', 'kw', 'mw'],
+    water: ['l/min', 'l/h', 'l/s', 'lpm', 'm3/h', 'm3/min'],
+    gas: ['m3/h', 'm3/min', 'l/min', 'l/h'],
+    heat: ['w', 'kw', 'mw'],
+};
+
+/** `m³/h` and `M3/h` and `m3 / h` are the same unit written by three adapters */
+function normalizeUnit(unit: string): string {
+    return unit
+        .toLowerCase()
+        .replace(/\u00b3/g, '3')
+        .replace(/\s+/g, '');
+}
 
 /** The kind a text points to, or null */
-function kindOf(text: string): DeviceKind | null {
+function kindOf(text: string, medium: MediumId): DeviceKind | null {
     const lower = text.toLowerCase();
-    return KEYWORDS.find(([, pattern]) => pattern.test(lower))?.[0] ?? null;
+    return KEYWORDS[medium].find(([, pattern]) => pattern.test(lower))?.[0] ?? null;
 }
 
 /**
@@ -41,46 +94,62 @@ function kindOf(text: string): DeviceKind | null {
  *
  * @param oid the state id
  * @param name its name
+ * @param medium what flows through the diagram being built
  * @returns the kind, and 3 (from the name), 2 (from the last part of the id), 1 (from the path) or 0
  */
-export function guessDevice(oid: string, name: string): { kind: DeviceKind | null; confidence: 0 | 1 | 2 | 3 } {
-    const fromName = name ? kindOf(name) : null;
+export function guessDevice(
+    oid: string,
+    name: string,
+    medium: MediumId = 'energy',
+): { kind: DeviceKind | null; confidence: 0 | 1 | 2 | 3 } {
+    const fromName = name ? kindOf(name, medium) : null;
     if (fromName) {
         return { kind: fromName, confidence: 3 };
     }
-    const fromLeaf = kindOf(oid.split('.').slice(-2).join('.'));
+    const fromLeaf = kindOf(oid.split('.').slice(-2).join('.'), medium);
     if (fromLeaf) {
         return { kind: fromLeaf, confidence: 2 };
     }
-    const fromPath = kindOf(oid);
+    const fromPath = kindOf(oid, medium);
     return fromPath ? { kind: fromPath, confidence: 1 } : { kind: null, confidence: 0 };
 }
 
-/** The kind of a power state as far as its id and name tell, or null */
-export function guessDeviceKind(oid: string, name: string): DeviceKind | null {
-    return guessDevice(oid, name).kind;
+/** The kind of a state as far as its id and name tell, or null */
+export function guessDeviceKind(oid: string, name: string, medium: MediumId = 'energy'): DeviceKind | null {
+    return guessDevice(oid, name, medium).kind;
 }
 
 /** How many of each kind the assistant ticks on its own: what fits a diagram, not what was found */
 export const PRESELECT_LIMITS: Record<DeviceKind, number> = { source: 4, grid: 1, storage: 1, sink: 4 };
 
 /**
- * Whether a state reports power: its unit is W, kW or MW, or its role says so.
+ * Whether a state reports the flow of a medium: its unit is one of that medium's, or -- for energy,
+ * the only medium ioBroker has a role for -- its role says so.
  *
  * @param common the `common` of the state object
- * @returns true for a power state
+ * @param medium what flows through the diagram being built
+ * @returns true for a candidate
  */
-export function isPowerState(common: { unit?: unknown; role?: unknown; type?: unknown } | undefined): boolean {
+export function isFlowState(
+    common: { unit?: unknown; role?: unknown; type?: unknown } | undefined,
+    medium: MediumId = 'energy',
+): boolean {
     if (!common || (common.type !== undefined && common.type !== 'number')) {
         return false;
     }
-    const unit = typeof common.unit === 'string' ? common.unit.trim() : '';
+    const unit = typeof common.unit === 'string' ? normalizeUnit(common.unit) : '';
     if (unit) {
         // The unit decides where there is one: ioBroker's role `value.power.consumption` is used for
         // energy meters in kWh just as much as for power
-        return POWER_UNITS.includes(unit);
+        return FLOW_UNITS[medium].includes(unit);
     }
-    return typeof common.role === 'string' && common.role.startsWith('value.power');
+    // Only a power state may be taken without a unit; a water meter without one is a number of
+    // anything, and guessing it would fill the list with thermostats
+    return (
+        (medium === 'energy' || medium === 'heat') &&
+        typeof common.role === 'string' &&
+        common.role.startsWith('value.power')
+    );
 }
 
 /**
@@ -128,19 +197,37 @@ function isHouse(text: string): boolean {
     );
 }
 
+/** Icons for a consumer, where its name gives it away, per medium */
+const SINK_ICONS: Record<MediumId, [RegExp, string][]> = {
+    energy: [
+        [/wallbox|charger|ladepunkt|evcc/, 'wallbox'],
+        [/(^|[._\s-])(car|auto)([._\s-]|$)|fahrzeug/, 'car'],
+        [/heatpump|heat.pump|wärmepumpe|waermepumpe/, 'heatpump'],
+    ],
+    water: [
+        [/dusche|shower|(^|[._\s-])bad([._\s-]|$)|bath/, 'shower'],
+        [/garten|garden|bew[aä]sser|irrigation|sprinkler/, 'sprinkler'],
+        [/wasch|washer|laundry/, 'washer'],
+        [/sp[uü]l|dishwasher/, 'dishwasher'],
+        [/pool|schwimm/, 'pool'],
+        [/k[uü]che|kitchen|hahn|tap/, 'tap'],
+    ],
+    gas: [
+        [/herd|stove|kochen/, 'stove'],
+        [/kamin|ofen|brenner/, 'flame'],
+        [/heizung|therme|kessel|boiler|heating/, 'boiler'],
+    ],
+    heat: [
+        [/warmwasser|hot.?water|(^|[._\s-])dhw([._\s-]|$)|zirkulation/, 'boiler'],
+        [/fu[sß]boden|floor/, 'heater'],
+        [/heizkreis|heizk[oö]rper|radiator|heizung|heating/, 'radiator'],
+    ],
+};
+
 /** An icon for a consumer, where its name gives it away */
-function sinkIcon(text: string): string | undefined {
+function sinkIcon(text: string, medium: MediumId): string | undefined {
     const lower = text.toLowerCase();
-    if (/wallbox|charger|ladepunkt|evcc/.test(lower)) {
-        return 'wallbox';
-    }
-    if (/(^|[._\s-])(car|auto)([._\s-]|$)|fahrzeug/.test(lower)) {
-        return 'car';
-    }
-    if (/heatpump|heat.pump|wärmepumpe|waermepumpe/.test(lower)) {
-        return 'heatpump';
-    }
-    return undefined;
+    return SINK_ICONS[medium].find(([pattern]) => pattern.test(lower))?.[1];
 }
 
 /**
@@ -154,9 +241,14 @@ function sinkIcon(text: string): string | undefined {
  * @param options the house's label, and the battery's state of charge if there is one
  * @param options.home label of the house in the middle
  * @param options.soc state of charge of the (first) battery
+ * @param options.medium what flows; it sets the unit, the dot speed and the icons
  * @returns the diagram
  */
-export function buildFromDevices(choices: DeviceChoice[], options: { home: string; soc?: string }): FlowConfig {
+export function buildFromDevices(
+    choices: DeviceChoice[],
+    options: { home: string; soc?: string; medium?: MediumId },
+): FlowConfig {
+    const medium = options.medium ?? 'energy';
     // The first consumer that is the house itself becomes the house's value
     const house = choices.find(choice => choice.kind === 'sink' && isHouse(`${choice.oid} ${choice.label}`));
     const of = (kind: DeviceKind): DeviceChoice[] => choices.filter(choice => choice.kind === kind && choice !== house);
@@ -184,7 +276,7 @@ export function buildFromDevices(choices: DeviceChoice[], options: { home: strin
     const add = (choice: DeviceChoice, prefix: string, x: number, y: number, inbound: boolean): void => {
         const id = uniqueId(prefix, taken());
         const node: FlowNode = { id, kind: choice.kind, x, y, label: choice.label };
-        const icon = choice.kind === 'sink' ? sinkIcon(`${choice.oid} ${choice.label}`) : undefined;
+        const icon = choice.kind === 'sink' ? sinkIcon(`${choice.oid} ${choice.label}`, medium) : undefined;
         if (icon) {
             node.icon = icon;
         }
@@ -204,5 +296,11 @@ export function buildFromDevices(choices: DeviceChoice[], options: { home: strin
     storages.forEach((choice, index) => add(choice, 'battery', width - 120, column(storages.length, index), true));
     sinks.forEach((choice, index) => add(choice, 'load', spread(sinks.length, index), height - 80, false));
 
-    return { v: 1, canvas: { w: width, h: height, grid: 10 }, nodes, edges, defaults: { unit: 'W' } };
+    return {
+        v: 1,
+        canvas: { w: width, h: height, grid: 10 },
+        nodes,
+        edges,
+        defaults: mediumDefaults(medium),
+    };
 }

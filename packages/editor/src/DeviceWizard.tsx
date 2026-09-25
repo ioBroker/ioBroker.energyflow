@@ -21,17 +21,20 @@ import {
 
 import {
     buildFromDevices,
+    emptyConfig,
     guessDevice,
     PRESELECT_LIMITS,
-    isPowerState,
+    isFlowState,
     isSocState,
     objectName,
     type DeviceKind,
     type FlowConfig,
+    type MediumId,
 } from '@flow/core';
 
 import { SelectRow } from './fields';
-import { KIND_ICONS } from './optionIcons';
+import { kindIcon } from './kindIcon';
+import { kindLabel, mediumWord } from './labels';
 import { RANGE_END } from './storedDiagrams';
 import type { EditorContext } from './types';
 
@@ -40,6 +43,8 @@ export interface DeviceWizardProps {
     onClose: () => void;
     onPick: (config: FlowConfig) => void;
     context: EditorContext;
+    /** What the diagram carries: which units are looked for, and what the words and icons are */
+    medium: MediumId;
 }
 
 interface Candidate {
@@ -59,11 +64,14 @@ const ORDER: Record<DeviceKind, number> = { source: 0, grid: 1, storage: 2, sink
 const SHOWN = 300;
 
 function WizardBody(props: DeviceWizardProps): React.JSX.Element {
-    const { onClose, onPick, context } = props;
+    const { onClose, onPick, context, medium } = props;
     const [candidates, setCandidates] = React.useState<Candidate[] | null>(null);
     const [socs, setSocs] = React.useState<{ oid: string; name: string }[]>([]);
     const [soc, setSoc] = React.useState('');
     const [filter, setFilter] = React.useState('');
+    // The words and the symbols of the kinds follow what is being built, so an empty document of that
+    // medium is all the designer's labels need
+    const mediumConfig = React.useMemo(() => emptyConfig(medium), [medium]);
     const [error, setError] = React.useState<string | null>(null);
 
     React.useEffect(() => {
@@ -83,8 +91,8 @@ function WizardBody(props: DeviceWizardProps): React.JSX.Element {
                     }
                     const common = object.common as { unit?: unknown; role?: unknown; type?: unknown; name?: unknown };
                     const name = objectName(common?.name, context.lang);
-                    if (isPowerState(common)) {
-                        const guess = guessDevice(oid, name);
+                    if (isFlowState(common, medium)) {
+                        const guess = guessDevice(oid, name, medium);
                         found.push({
                             oid,
                             name,
@@ -118,7 +126,7 @@ function WizardBody(props: DeviceWizardProps): React.JSX.Element {
         return () => {
             cancelled = true;
         };
-    }, [context.socket, context.lang]);
+    }, [context.socket, context.lang, medium]);
 
     const update = (oid: string, patch: Partial<Candidate>): void =>
         setCandidates(previous => previous && previous.map(item => (item.oid === oid ? { ...item, ...patch } : item)));
@@ -140,6 +148,7 @@ function WizardBody(props: DeviceWizardProps): React.JSX.Element {
                 {
                     home: context.t('wizard_home'),
                     soc: chosen.some(item => item.kind === 'storage') ? soc || undefined : undefined,
+                    medium,
                 },
             ),
         );
@@ -212,8 +221,8 @@ function WizardBody(props: DeviceWizardProps): React.JSX.Element {
                                             value={item.kind}
                                             options={KINDS.map(kind => ({
                                                 value: kind,
-                                                label: context.t(`kind_${kind}`),
-                                                icon: KIND_ICONS[kind],
+                                                label: kindLabel(kind, mediumConfig, context.t),
+                                                icon: kindIcon(kind, mediumConfig),
                                             }))}
                                             onChange={kind => update(item.oid, { kind, checked: true })}
                                         />
@@ -232,7 +241,7 @@ function WizardBody(props: DeviceWizardProps): React.JSX.Element {
                         {chosen.some(item => item.kind === 'storage') ? (
                             <Box sx={{ mt: 2 }}>
                                 <SelectRow
-                                    label={context.t('wizard_soc')}
+                                    label={mediumWord('wizard_soc', mediumConfig, context.t)}
                                     value={soc}
                                     emptyLabel={context.t('wizard_no_soc')}
                                     options={socs.map(item => ({ value: item.oid, label: item.name || item.oid }))}

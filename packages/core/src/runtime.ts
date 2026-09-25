@@ -31,6 +31,8 @@ import { HISTORY_PERIODS, sparklinePaths, type HistoryGetter } from './history';
 import { autarky, firstMatchingRule, rawText, scaleColor, selfConsumption } from './rules';
 import { mediumOf } from './media';
 import { styledTheme } from './styles';
+import { hasTemplate, renderTemplate } from './template';
+import { computeHydraulics, hydraulicNodes, type HydraulicFlow } from './hydraulics';
 import { resolveSrc, srcOids, type TimeGetter, type ValueGetter } from './values';
 import { muteColor, type FlowTheme } from './theme';
 import type { AnimationSettings, FlowConfig, FlowEdge, FlowNode, NodeKind, NodeShape, Point, Rect } from './types';
@@ -64,6 +66,8 @@ export interface NodeRuntime {
      */
     level: number | null;
     fontSize: number;
+    /** The caption of a `label` node, with its placeholders filled in */
+    text: string;
     /** Size of the label below the node -- the diagram's label size times the node's `labelScale` */
     labelFontSize: number;
     /** When the value last changed or was updated, written out; null when not asked for or unknown */
@@ -181,9 +185,19 @@ function edgeValue(edge: FlowEdge, get: ValueGetter): number | null {
  * Speed is proportional to power, which is the whole point of the animation -- a glance at the
  * diagram should say how much is flowing, not just that something is. The clamp keeps a 20 kW
  * charging session from turning into a blur and a 30 W trickle from looking frozen.
+ *
+ * `null` is "it flows, how much nobody knows", which is what a worked-out line says when nothing in
+ * the installation measures litres. There is no speed to derive then, so it runs at the reference
+ * one: a line that is alive has to move, or the whole point of working the flow out is lost.
  */
-function dotDuration(magnitude: number, animation: Required<AnimationSettings>): number {
-    if (!animation.enabled || magnitude <= 0) {
+function dotDuration(magnitude: number | null, animation: Required<AnimationSettings>): number {
+    if (!animation.enabled) {
+        return 0;
+    }
+    if (magnitude === null) {
+        return animation.refDuration;
+    }
+    if (magnitude <= 0) {
         return 0;
     }
     const raw = (animation.refDuration * animation.refPower) / magnitude;
@@ -334,6 +348,7 @@ export function computeRuntime(
         level: null,
         fontSize: node.fontSize ?? defaultFontSize,
         labelFontSize: nodeLabelSize(node, config),
+        text: '',
         timeText: null,
         chart: null,
         stale: false,
@@ -349,6 +364,19 @@ export function computeRuntime(
     // Step 2: the edges
     const edges: EdgeRuntime[] = [];
 
+    /**
+     * Step 1.5: what carries something, worked out from the elements. Only for a diagram that asks
+     * for it, and only for the lines that have no reading of their own -- a metered line always says
+     * what it says.
+     */
+    const hydraulics: Map<string, HydraulicFlow> = config.defaults?.hydraulics
+        ? computeHydraulics(
+              config,
+              hydraulicNodes(config, get, node => node.unit || sourceUnit(node.value, units)),
+              documentFormat?.unit,
+          )
+        : new Map();
+
     for (const edge of config.edges || []) {
         const fromNode = nodeById[edge.from];
         const toNode = nodeById[edge.to];
@@ -363,14 +391,29 @@ export function computeRuntime(
         const unit =
             edge.unit || sourceUnit(edge.value, units) || sourceUnit(edge.reverse, units) || documentFormat?.unit;
         const scale = unitScale(unit);
-        const raw = edgeValue(edge, get);
+        const reading = edgeValue(edge, get);
+        // A line without a reading of its own takes what the elements around it imply
+        const worked = reading === null ? hydraulics.get(edge.id) : undefined;
+        // A line the model left out is known to be still: zero, not the placeholder, which would
+        // claim nobody knows. That is what makes the pipe where the two halves of a ring meet
+        // readable -- and it is the same answer for a whole plant whose pump stands, which must not
+        // read differently from one dead pipe in a ring
+        const still = reading === null && !worked && !!config.defaults?.hydraulics;
         // From here on in the base unit: the threshold, the dot speed and the sums of the nodes all
         // compare this edge with others that may be metered in another multiple
-        const value = raw === null ? null : raw * scale.factor;
+        const own = reading === null ? null : reading * scale.factor;
+        const value =
+            own === null && worked?.value !== undefined && worked.value !== null
+                ? worked.value * scale.factor * worked.direction
+                : still
+                  ? 0
+                  : own;
         const magnitude = value === null ? 0 : Math.abs(value);
-        const threshold = edgeThreshold(edge);
-        const active = magnitude > threshold;
-        const direction: 1 | -1 | 0 = !active || value === null ? 0 : value > 0 ? 1 : -1;
+        const threshold = edgeThreshold(edge, config);
+        // "Flows, amount unknown": the line is alive although no number reached it
+        const active = magnitude > threshold || (value === null && !!worked?.live);
+        const direction: 1 | -1 | 0 =
+            value === null ? (worked?.live ? worked.direction : 0) : !active ? 0 : value > 0 ? 1 : -1;
 
         const fromCenter = { x: fromNode.rect.x + fromNode.rect.w / 2, y: fromNode.rect.y + fromNode.rect.h / 2 };
         const toCenter = { x: toNode.rect.x + toNode.rect.w / 2, y: toNode.rect.y + toNode.rect.h / 2 };
@@ -403,12 +446,22 @@ export function computeRuntime(
         const litColor = direction < 0 ? reverseColor : forwardColor;
 
         const format = { ...mergeFormat(edge, documentFormat), unit };
+        // A word instead of the amount, where the line names one for its state: the source that is
+        // actually showing, and only if it is a single state -- a formula is a number by
+        // construction. The number keeps its work: direction, threshold, and the speed of the dots
+        const shownSrc = direction < 0 && edge.reverse ? edge.reverse : edge.value;
+        const edgeOids = edge.textMap ? srcOids(shownSrc) : [];
+        const rawEdge = edgeOids.length === 1 && options.raw ? options.raw(edgeOids[0]) : undefined;
+        const edgeWord = rawEdge === undefined || rawEdge === null ? undefined : edge.textMap?.[rawText(rawEdge)];
         // The label always shows the amount, never the sign -- the direction is already visible
         // in which way the dots move, and "-2.4 kW" next to an arrow pointing left reads wrong
-        const valueText = formatValue(value === null ? null : magnitude / scale.factor, {
-            ...format,
-            locale: theme.locale,
-        });
+        const valueText =
+            edgeWord !== undefined
+                ? { text: edgeWord, number: edgeWord, unit: '' }
+                : formatValue(value === null ? null : magnitude / scale.factor, {
+                      ...format,
+                      locale: theme.locale,
+                  });
         // Far enough from the line that the text clears it and the arrow on it: beside a vertical
         // line that is half the text's width, above a horizontal one half its height. A chip brings
         // its own background, so it sits on the line instead of next to it.
@@ -433,7 +486,7 @@ export function computeRuntime(
             geometry,
             valueText,
             labelPos: offsetFromLine(geometry.mid, geometry.midDir, labelDistance),
-            dotDuration: active ? dotDuration(magnitude, animation) : 0,
+            dotDuration: active ? dotDuration(value === null ? null : magnitude, animation) : 0,
             // Filled in below: whether an edge is drawn depends on whether its nodes are, and that
             // depends on values this pass does not have yet
             visible: !(edge.hideWhenIdle && !active),
@@ -443,11 +496,29 @@ export function computeRuntime(
     // Step 3: the node values -- the node's own source if it has one, otherwise the sum of its edges
     for (const runtime of nodes) {
         const node = runtime.node;
+
+        // The caption of a label node. Its placeholders read states, so it is filled in here, where
+        // the values, the times and the units already are
+        const caption = node.text ?? '';
+        runtime.text = hasTemplate(caption)
+            ? renderTemplate(caption, {
+                  own: srcOids(node.value)[0],
+                  raw: options.raw,
+                  times,
+                  units,
+                  locale: theme.locale,
+                  now,
+              })
+            : caption;
         const own = resolveSrc(node.value, get);
         let value: number | null;
         let unit: string | undefined;
         if (own !== null) {
-            unit = node.unit || sourceUnit(node.value, units) || documentFormat?.unit;
+            unit =
+                node.unit ||
+                sourceUnit(node.value, units) ||
+                (node.kind === 'storage' ? medium.storageUnit : undefined) ||
+                documentFormat?.unit;
             value = own * unitScale(unit).factor;
         } else {
             // Derived values are sums of edges, which are all in their base unit already
@@ -465,13 +536,22 @@ export function computeRuntime(
             unit,
             locale: theme.locale,
         });
-        runtime.badges = (node.badges || []).map(badge => ({
-            label: badge.label,
-            text: formatValue(resolveSrc(badge.src, get, shown), {
-                ...mergeFormat(badge, documentFormat, sourceUnit(badge.src, units)),
-                locale: theme.locale,
-            }).text,
-        }));
+        runtime.badges = (node.badges || []).map(badge => {
+            // A switch rather than a number: the word for the raw value, where the badge names one.
+            // Only a single state has a raw value -- a formula is a number by construction
+            const oids = badge.textMap ? srcOids(badge.src) : [];
+            const rawBadge = oids.length === 1 && raw ? raw(oids[0]) : undefined;
+            const word = rawBadge === undefined || rawBadge === null ? undefined : badge.textMap?.[rawText(rawBadge)];
+            return {
+                label: badge.label,
+                text:
+                    word ??
+                    formatValue(resolveSrc(badge.src, get, shown), {
+                        ...mergeFormat(badge, documentFormat, sourceUnit(badge.src, units)),
+                        locale: theme.locale,
+                    }).text,
+            };
+        });
         runtime.soc = socRaw === null ? null : Math.min(Math.max(socRaw, 0), 100);
         // The amount, not the sign: a grid node exporting 900 W is as "full" as one importing 900 W
         const shownValue = shown();
@@ -518,16 +598,23 @@ export function computeRuntime(
             const latest = Math.max(0, ...srcOids(node.value).map(oid => times(oid)?.[field] ?? 0));
             runtime.timeText = latest > 0 ? formatTimestamp(latest, node.timestampFormat, now, theme.locale) : null;
         }
-        // A status instead of a number: the raw state value, translated if the node says how
+        // A word instead of a number: the raw state value, translated if the node says how
         const rawValue = node.value && 'oid' in node.value && node.value.oid && raw ? raw(node.value.oid) : undefined;
-        if (node.display === 'text') {
-            const text =
-                rawValue === undefined || rawValue === null
-                    ? null
-                    : (node.textMap?.[rawText(rawValue)] ?? (typeof rawValue === 'number' ? null : rawText(rawValue)));
-            if (text !== null) {
-                runtime.valueText = { text, number: text, unit: '' };
-            }
+        const known = rawValue === undefined || rawValue === null ? undefined : rawValue;
+        // A word the map names wins over the number whatever `display` says: the map is the user
+        // saying what this value means, and a second field that quietly switches it off is a trap
+        const word =
+            known === undefined
+                ? undefined
+                : (node.textMap?.[rawText(known)] ??
+                  // Text without a translation: a status string shows as it is, a number does not --
+                  // a number has a proper format and "3" instead of "3,00 kW" is a step backwards
+                  (node.display === 'text' && typeof known !== 'number' ? rawText(known) : undefined));
+        if (node.display === 'none') {
+            // Nothing where the number would be: the node is its symbol and its label
+            runtime.valueText = { text: '', number: '', unit: '' };
+        } else if (word !== undefined) {
+            runtime.valueText = { text: word, number: word, unit: '' };
         }
 
         if (node.energyToday) {

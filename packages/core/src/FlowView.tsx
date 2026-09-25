@@ -633,7 +633,7 @@ function NodeLayer({
                             fill={node.node.color || theme.text}
                             style={{ userSelect: 'none' }}
                         >
-                            {node.node.text || node.node.label || ''}
+                            {node.text || node.node.label || ''}
                         </text>
                     );
                 }
@@ -652,7 +652,9 @@ function NodeLayer({
                     ) : null;
                 }
 
-                if (node.node.kind === 'bus') {
+                // A junction is a dot -- unless it carries a symbol, which makes it a valve or a pump,
+                // and those are drawn like any other node
+                if (node.node.kind === 'bus' && !node.icon) {
                     return (
                         <circle
                             key={node.node.id}
@@ -673,7 +675,11 @@ function NodeLayer({
                 const pad = left ? Math.max(rect.h * 0.18, 6) : 0;
                 const iconSize = left ? Math.min(rect.h * 0.56, rect.w * 0.3) : Math.min(rect.w, rect.h) * 0.34;
                 const iconX = left ? rect.x + pad + iconSize / 2 : cx;
-                const iconY = left ? cy : cy - rect.h * 0.16;
+                // Nothing where the number would be (`display: 'none'`): the icon takes the middle
+                // instead of keeping the lower half free for a number that is not coming -- a little
+                // above it when there are extra values, which then move up into the value's place
+                const hasValue = node.valueText.text !== '';
+                const iconY = left ? cy : hasValue ? cy - rect.h * 0.16 : hasBadges ? cy - rect.h * 0.12 : cy;
                 const textX = left ? (rect.x + pad + iconSize + rect.x + rect.w - pad / 2) / 2 : cx;
                 // Room for the value: beside the icon, or across the box -- a little less in a circle,
                 // which is narrower below its middle. A node without a shape has no edge to run over.
@@ -740,12 +746,16 @@ function NodeLayer({
                                 look={look}
                                 glowId={iconGlowId}
                                 lines={[
-                                    {
-                                        text: node.valueText.text,
-                                        size: node.fontSize,
-                                        weight: 700,
-                                        color: theme.text,
-                                    },
+                                    ...(hasValue
+                                        ? [
+                                              {
+                                                  text: node.valueText.text,
+                                                  size: node.fontSize,
+                                                  weight: 700,
+                                                  color: theme.text,
+                                              },
+                                          ]
+                                        : []),
                                     ...(node.node.label && !hideLabels
                                         ? [
                                               {
@@ -790,7 +800,7 @@ function NodeLayer({
                                   />
                               ) : null))}
 
-                        {look.labelInside ? null : (
+                        {look.labelInside || !hasValue ? null : (
                             <text
                                 x={textX}
                                 y={valueY}
@@ -808,7 +818,7 @@ function NodeLayer({
                         {hasBadges && !look.labelInside ? (
                             <text
                                 x={textX}
-                                y={valueY + node.fontSize * 0.95}
+                                y={valueY + (hasValue ? node.fontSize * 0.95 : 0)}
                                 textAnchor="middle"
                                 dominantBaseline="middle"
                                 fontSize={secondSize}

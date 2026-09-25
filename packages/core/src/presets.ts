@@ -11,7 +11,7 @@
  * two signed. A diagram that asks for "grid import" and "grid feed-in" separately is asking the user
  * to solve a problem the `signed` edge mode already solves.
  */
-import { MEDIA, type MediumId } from './media';
+import { mediumDefaults, type MediumId } from './media';
 import type { FlowConfig, FlowEdge, FlowNode } from './types';
 
 export type PresetId =
@@ -22,6 +22,8 @@ export type PresetId =
     | 'grid-home'
     | 'water-house'
     | 'water-cistern'
+    | 'gas-house'
+    | 'heat-pump'
     | 'empty';
 
 export interface PresetInfo {
@@ -62,6 +64,8 @@ export const PRESETS: PresetInfo[] = [
         description: 'preset_water_cistern_desc',
         medium: 'water',
     },
+    { id: 'gas-house', label: 'preset_gas_house', description: 'preset_gas_house_desc', medium: 'gas' },
+    { id: 'heat-pump', label: 'preset_heat_pump', description: 'preset_heat_pump_desc', medium: 'heat' },
     { id: 'empty', label: 'preset_empty', description: 'preset_empty_desc', medium: 'energy' },
 ];
 
@@ -77,12 +81,7 @@ const BASE_DEFAULTS: FlowConfig['defaults'] = {
 
 /** The same, for a diagram that carries something else: the unit and the dot speed of that medium */
 function defaultsOf(medium: MediumId): FlowConfig['defaults'] {
-    return {
-        ...BASE_DEFAULTS,
-        medium,
-        unit: MEDIA[medium].unit,
-        animation: { refPower: MEDIA[medium].refValue },
-    };
+    return { ...BASE_DEFAULTS, ...mediumDefaults(medium) };
 }
 
 function node(partial: FlowNode): FlowNode {
@@ -321,6 +320,60 @@ export function buildPreset(id: PresetId, t: Translator): FlowConfig {
                         mode: 'signed',
                         showValue: true,
                     }),
+                ],
+            };
+
+        case 'gas-house':
+            return {
+                v: 1,
+                canvas: { w: 860, h: 470, grid: 10 },
+                defaults: defaultsOf('gas'),
+                nodes: [
+                    node({ id: 'meter', kind: 'grid', x: 160, y: 235, icon: 'meter', label: t('node_gas_meter') }),
+                    node({ id: 'home', kind: 'sink', x: 470, y: 235, icon: 'house', label: t('node_home') }),
+                    node({ id: 'heating', kind: 'sink', x: 740, y: 120, icon: 'boiler', label: t('node_heating') }),
+                    node({ id: 'stove', kind: 'sink', x: 740, y: 350, icon: 'stove', label: t('node_stove') }),
+                ],
+                edges: [
+                    edge({ id: 'meter-home', from: 'meter', to: 'home', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'home-heating', from: 'home', to: 'heating', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'home-stove', from: 'home', to: 'stove', value: { oid: '' }, mode: 'positive' }),
+                ],
+            };
+
+        case 'heat-pump':
+            return {
+                v: 1,
+                canvas: { w: 900, h: 560, grid: 10 },
+                defaults: defaultsOf('heat'),
+                nodes: [
+                    node({ id: 'pump', kind: 'source', x: 180, y: 150, icon: 'heatpump', label: t('node_heatpump') }),
+                    node({ id: 'solar', kind: 'source', x: 180, y: 400, icon: 'sun', label: t('node_solar_thermal') }),
+                    node({
+                        id: 'buffer',
+                        kind: 'storage',
+                        x: 470,
+                        y: 275,
+                        icon: 'heatstorage',
+                        label: t('node_buffer'),
+                        // A buffer is as full as it is warm: the sensor on top of it says so
+                        soc: { oid: '' },
+                    }),
+                    node({
+                        id: 'heating',
+                        kind: 'sink',
+                        x: 760,
+                        y: 150,
+                        icon: 'radiator',
+                        label: t('node_heating_circuit'),
+                    }),
+                    node({ id: 'water', kind: 'sink', x: 760, y: 400, icon: 'boiler', label: t('node_hot_water') }),
+                ],
+                edges: [
+                    edge({ id: 'pump-buffer', from: 'pump', to: 'buffer', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'solar-buffer', from: 'solar', to: 'buffer', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'buffer-heating', from: 'buffer', to: 'heating', value: { oid: '' }, mode: 'positive' }),
+                    edge({ id: 'buffer-water', from: 'buffer', to: 'water', value: { oid: '' }, mode: 'positive' }),
                 ],
             };
 

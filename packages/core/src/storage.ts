@@ -2,20 +2,26 @@
  * Diagrams stored centrally, in the adapter's own namespace.
  *
  * A diagram can live in two places. **Inline**, inside the widget that shows it -- which is how the
- * first version did it: it travels with a view export and needs nothing else. Or **stored**, as a
- * state `flow.<instance>.diagrams.<id>` holding the document as JSON, with the widget carrying
- * nothing but a reference to it (`{ "$ref": "flow.0.diagrams.pv" }`, see {@link FlowConfigRef}).
+ * first version did it: it travels with a view export and needs nothing else. Or **stored**, as an
+ * object `flow.<instance>.diagrams.<id>` of type `config` whose `native.flow` is the document, with
+ * the widget carrying nothing but a reference to it (`{ "$ref": "flow.0.diagrams.pv" }`, see
+ * {@link FlowConfigRef}).
  *
  * The second one is what makes a diagram editable in the admin without opening vis-2, and usable in
- * vis-2 and the device manager at the same time. It is a state rather than an object because both hosts
- * already know how to subscribe to a state: an edit in the admin tab reaches every open view at once,
- * through the same channel that delivers the power readings.
+ * vis-2 and the device manager at the same time. It is a configuration, not a reading, so it is an
+ * object: a state would carry a document as a string in its value and claim a timestamp, a quality
+ * and an acknowledgement for something that never changes on its own. Both hosts read it with
+ * `getObject` and follow it with `subscribeObject`, so an edit in the admin tab still reaches every
+ * open view at once.
  */
 import { normalizeConfig } from './defaults';
 import { isConfigRef, type FlowConfig, type FlowConfigOrRef } from './types';
 
-/** Name of the channel under the instance that holds the diagrams */
-export const DIAGRAM_CHANNEL = 'diagrams';
+/** Name of the folder under the instance that holds the diagrams */
+export const DIAGRAM_FOLDER = 'diagrams';
+
+/** The key of `native` the document is stored under */
+export const DIAGRAM_NATIVE = 'flow';
 
 /**
  * The common prefix of every stored diagram of an instance.
@@ -24,14 +30,14 @@ export const DIAGRAM_CHANNEL = 'diagrams';
  * @returns e.g. `flow.0.diagrams.`
  */
 export function diagramPrefix(instance = 0): string {
-    return `flow.${instance}.${DIAGRAM_CHANNEL}.`;
+    return `flow.${instance}.${DIAGRAM_FOLDER}.`;
 }
 
 /**
- * Whether a state id names a stored diagram. Checked before a reference is followed, so a document
- * cannot be pointed at an arbitrary state and have its value parsed as a diagram.
+ * Whether an id names a stored diagram. Checked before a reference is followed, so a widget cannot be
+ * pointed at an arbitrary object and have its `native` read as a diagram.
  *
- * @param id the state id
+ * @param id the object id
  * @returns true for `flow.<n>.diagrams.<id>`
  */
 export function isDiagramId(id: string): boolean {
@@ -69,7 +75,7 @@ export function slugify(name: string): string {
  * @param name the display name to derive it from
  * @param taken the full ids that exist already
  * @param instance the adapter instance
- * @returns a full state id
+ * @returns a full object id
  */
 export function newDiagramId(name: string, taken: Iterable<string>, instance = 0): string {
     const used = new Set(taken);
@@ -86,41 +92,38 @@ export function newDiagramId(name: string, taken: Iterable<string>, instance = 0
 }
 
 /**
- * The value written into a diagram state.
+ * The `native` of a diagram object.
  *
  * @param config the diagram
- * @returns JSON text
+ * @returns what to write into the object
  */
-export function serializeDiagram(config: FlowConfig): string {
-    return JSON.stringify(config);
+export function diagramNative(config: FlowConfig): { flow: FlowConfig } {
+    return { [DIAGRAM_NATIVE]: config };
 }
 
 /**
- * Read a diagram state's value.
+ * Read the document out of a diagram object's `native`.
  *
- * @param value the state value, normally a JSON string
- * @returns the diagram, or null if the state holds nothing usable yet
+ * Takes the `native` rather than the object, so the core needs to know nothing about ioBroker's
+ * object shape -- the hosts hand over what they read.
+ *
+ * @param native the `native` of the object, or the object's document itself
+ * @returns the diagram, or null if the object holds nothing usable yet
  */
-export function parseStoredDiagram(value: unknown): FlowConfig | null {
-    if (value === null || value === undefined || value === '') {
+export function diagramFromNative(native: unknown): FlowConfig | null {
+    if (!native || typeof native !== 'object') {
+        return null;
+    }
+    const document = (native as Record<string, unknown>)[DIAGRAM_NATIVE];
+    if (!document || typeof document !== 'object') {
         return null;
     }
     // A stored diagram that itself points somewhere else would be a chain to follow; refuse it rather
     // than recurse, since nothing creates one on purpose
-    if (value && typeof value === 'object' && isConfigRef(value as FlowConfigOrRef)) {
+    if (isConfigRef(document as FlowConfigOrRef)) {
         return null;
     }
-    if (typeof value === 'string') {
-        try {
-            const parsed: unknown = JSON.parse(value);
-            if (parsed && typeof parsed === 'object' && isConfigRef(parsed as FlowConfigOrRef)) {
-                return null;
-            }
-        } catch {
-            return null;
-        }
-    }
-    return normalizeConfig(value);
+    return normalizeConfig(document);
 }
 
 /**

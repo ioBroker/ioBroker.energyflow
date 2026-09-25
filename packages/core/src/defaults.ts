@@ -5,7 +5,8 @@
  * knows. So everything here has a default, a node written by the editor is a handful of keys, and a
  * later version can change how an unset knob behaves for every existing diagram at once.
  */
-import { mediumOf } from './media';
+import { mediumDefaults, mediumOf, type MediumId } from './media';
+import { unitScale } from './format';
 import type { AnimationSettings, FlowCanvas, FlowConfig, FlowEdge, FlowNode, NodeKind, NodeShape, Rect } from './types';
 
 /** Canvas units. The diagram is scaled into the box the host gives it, so these are not pixels. */
@@ -37,8 +38,8 @@ export const DEFAULT_LINE_WIDTH = 3;
 export const DEFAULT_FONT_SIZE = 17;
 
 /**
- * Below this absolute value an edge counts as idle. One watt of standby on a meter should not make
- * the whole diagram twitch.
+ * Below this absolute value an edge of an energy diagram counts as idle. One watt of standby on a
+ * meter should not make the whole diagram twitch. Another medium brings its own, see `MEDIA`.
  */
 export const DEFAULT_THRESHOLD = 1;
 
@@ -62,6 +63,13 @@ const SIZE_BY_SHAPE: Record<NodeShape, { w: number; h: number }> = {
 
 /** A junction is only a routing point, so it is drawn far smaller than a real node */
 const BUS_SIZE = { w: 18, h: 18 };
+
+/**
+ * ... but a junction that carries a symbol is not a routing point: it is a valve, a pump, a filter.
+ * It gets a body to draw that symbol in, smaller than a producer or a consumer, because it is a part
+ * of the line rather than one of its ends.
+ */
+const BUS_ICON_SIZE = { w: 62, h: 62 };
 
 const ICON_BY_KIND: Record<NodeKind, string> = {
     source: 'solar',
@@ -117,7 +125,7 @@ export function nodeShape(node: FlowNode): NodeShape {
  */
 export function nodeRect(node: FlowNode): Rect {
     const shape = nodeShape(node);
-    const fallback = node.kind === 'bus' ? BUS_SIZE : SIZE_BY_SHAPE[shape];
+    const fallback = node.kind === 'bus' ? (node.icon ? BUS_ICON_SIZE : BUS_SIZE) : SIZE_BY_SHAPE[shape];
     const w = node.w ?? fallback.w;
     const h = node.h ?? (shape === 'circle' ? w : fallback.h);
     return { x: node.x - w / 2, y: node.y - h / 2, w, h };
@@ -187,13 +195,23 @@ export function nodeLabelSize(node: FlowNode, config: FlowConfig): number {
 }
 
 /**
- * The value below which an edge counts as idle.
+ * The value below which an edge counts as idle, in the base unit of what flows.
+ *
+ * The edge's own number wins, then the one of the medium. Without that second step every water
+ * diagram would need a threshold on every line: a tenth of a litre a minute is a dripping tap, but
+ * the one watt an energy diagram starts from is more than a garden hose delivers.
  *
  * @param edge the edge
+ * @param config the diagram, for its medium
  * @returns the threshold
  */
-export function edgeThreshold(edge: FlowEdge): number {
-    return edge.threshold ?? DEFAULT_THRESHOLD;
+export function edgeThreshold(edge: FlowEdge, config?: FlowConfig): number {
+    if (edge.threshold !== undefined) {
+        return edge.threshold;
+    }
+    const medium = mediumOf(config);
+    // The runtime compares in the base unit, and so does the threshold: kW -> W times 1000
+    return medium.threshold * unitScale(medium.unit).factor;
 }
 
 /**
@@ -201,8 +219,11 @@ export function edgeThreshold(edge: FlowEdge): number {
  *
  * @returns a valid, empty document
  */
-export function emptyConfig(): FlowConfig {
-    return { v: 1, canvas: { ...DEFAULT_CANVAS }, nodes: [], edges: [] };
+export function emptyConfig(medium?: MediumId): FlowConfig {
+    const config: FlowConfig = { v: 1, canvas: { ...DEFAULT_CANVAS }, nodes: [], edges: [] };
+    // Without a medium the document stays as empty as it always was; with one it carries the unit
+    // and the dot speed from the start, so the first node is already right
+    return medium && medium !== 'energy' ? { ...config, defaults: mediumDefaults(medium) } : config;
 }
 
 /**

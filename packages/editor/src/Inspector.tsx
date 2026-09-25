@@ -15,7 +15,7 @@ import {
     DIAGRAM_STYLE_IDS,
     DEFAULT_FONT_SIZE,
     DEFAULT_LINE_WIDTH,
-    DEFAULT_THRESHOLD,
+    edgeThreshold,
     iconPlacement,
     MEDIA,
     MEDIUM_IDS,
@@ -27,11 +27,18 @@ import {
     removeNodes,
     renameNode,
     cachedMax,
+    isSrcState,
+    mediumOf,
+    paletteChange,
+    paletteEntryOf,
+    paletteOf,
     sourceMax,
     sourceUnit,
     srcOids,
+    switchText,
     updateEdge,
     updateNode,
+    withSwitchText,
     type EdgeCurve,
     type EdgeMode,
     type FlowConfig,
@@ -45,16 +52,23 @@ import {
 } from '@flow/core';
 
 import { CheckRow, ColorRow, NumberField, Row, Section, SelectRow, TextFieldRow } from './fields';
-import { kindLabel } from './labels';
+import { mediumWord, paletteLabel } from './labels';
+import { kindIcon } from './kindIcon';
 import { StateIdRow, SourceField } from './SourceField';
 import { IconPickerDialog, IconPreview } from './IconPicker';
 import { IS_MAC } from './selection';
 import { useIsRecorded } from './useHistory';
-import { ColorScaleSection, RulesSection, ValueDisplayFields } from './InspectorExtras';
+import {
+    ColorScaleSection,
+    DisplaySelect,
+    RulesSection,
+    SwitchTextFields,
+    ValueDisplayFields,
+} from './InspectorExtras';
 import {
     ACTION_ICONS,
     CURVE_ICONS,
-    KIND_ICONS,
+    MEDIUM_ICONS,
     MODE_ICONS,
     SHAPE_ICONS,
     SIDE_ICONS,
@@ -77,13 +91,15 @@ export interface InspectorProps {
     historyInstance?: string | null;
 }
 
-const NODE_KINDS: NodeKind[] = ['source', 'sink', 'storage', 'grid', 'bus', 'label', 'image'];
 const NODE_SHAPES: NodeShape[] = ['circle', 'rounded', 'square', 'none'];
 const EDGE_MODES: EdgeMode[] = ['signed', 'positive', 'split'];
 const EDGE_CURVES: EdgeCurve[] = ['bezier', 'orthogonal', 'straight'];
 const SIDES: Side[] = ['auto', 'top', 'right', 'bottom', 'left'];
 const ACTION_TYPES = ['none', 'toggle', 'setValue', 'url', 'view', 'chart'] as const;
 const TIMESTAMPS = ['none', 'lc', 'ts'] as const;
+
+/** What an element can be in the flow, in the order the list offers them */
+const HYDRAULIC_ROLES = ['supply', 'store', 'gate', 'driver', 'meter', 'demand', 'pass'] as const;
 const TIMESTAMP_FORMATS: TimestampFormat[] = ['relative', 'time', 'datetime'];
 const HISTORY_OPTIONS = ['none', '15m', '30m', '1h', '3h', '6h', '12h', '24h'] as const;
 
@@ -135,13 +151,16 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
     const [idDraft, setIdDraft] = React.useState<string | null>(null);
 
     const patch = (values: Partial<FlowNode>): void => onChange(updateNode(config, node.id, values));
+    const medium = mediumOf(config).id;
     const color = node.color || defaultNodeColor(node.kind);
     const stateUnit = sourceUnit(node.value, props.units);
     // What the state object declares as its maximum: the fill level falls back to it
     const stateMax = sourceMax(node.value, cachedMax);
     // Position and size step by the grid, so the arrows land where dragging would
     const gridStep = config.canvas.grid && config.canvas.grid > 0 ? config.canvas.grid : 1;
-    const isDecoration = node.kind === 'label' || node.kind === 'image' || node.kind === 'bus';
+    // A junction carrying a symbol is a valve, a pump, a meter: a thing with a reading of its own,
+    // so it gets the whole panel. A bare junction stays what it is, a routing point
+    const isDecoration = node.kind === 'label' || node.kind === 'image' || (node.kind === 'bus' && !node.icon);
 
     const idTaken =
         idDraft !== null &&
@@ -170,15 +189,33 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
             </Stack>
 
             <Section title={context.t('insp_basics')}>
+                {config.defaults?.hydraulics ? (
+                    <SelectRow
+                        label={context.t('insp_role')}
+                        value={node.hydraulic ?? 'auto'}
+                        options={[
+                            { value: 'auto' as const, label: context.t('role_auto') },
+                            ...HYDRAULIC_ROLES.map(role => ({ value: role, label: context.t(`role_${role}`) })),
+                        ]}
+                        onChange={role => patch({ hydraulic: role === 'auto' ? undefined : role })}
+                    />
+                ) : null}
                 <SelectRow
                     label={context.t('insp_kind')}
-                    value={node.kind}
-                    options={NODE_KINDS.map(kind => ({
-                        value: kind,
-                        label: kindLabel(kind, config, context.t),
-                        icon: KIND_ICONS[kind],
+                    // The same list the palette offers: what can be placed must be choosable here,
+                    // or a valve placed on the left could never be turned into a pump on the right
+                    value={paletteEntryOf(node, medium)?.id ?? node.kind}
+                    options={paletteOf(medium).map(entry => ({
+                        value: entry.id,
+                        label: paletteLabel(entry, config, context.t),
+                        icon: kindIcon(entry.kind, config, entry.icon),
                     }))}
-                    onChange={kind => patch({ kind })}
+                    onChange={id => {
+                        const entry = paletteOf(medium).find(item => item.id === id);
+                        if (entry) {
+                            patch(paletteChange(node, entry, medium));
+                        }
+                    }}
                 />
                 <TextFieldRow
                     label={context.t('insp_label')}
@@ -224,6 +261,20 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                         label={context.t('insp_text')}
                         value={node.text}
                         onChange={text => patch({ text })}
+                    />
+                    <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ display: 'block', mb: 1 }}
+                    >
+                        {context.t('insp_text_help')} {context.t('insp_text_help_math')}
+                    </Typography>
+                    {/* The state `{{ val }}` and `{{ ts }}` read; another one is named in the text */}
+                    <StateIdRow
+                        label={context.t('insp_text_source')}
+                        value={node.value && isSrcState(node.value) ? node.value.oid : ''}
+                        context={context}
+                        onChange={oid => patch({ value: oid ? { oid } : undefined })}
                     />
                     <NumberField
                         label={context.t('insp_font_size')}
@@ -352,6 +403,11 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
             {!isDecoration ? (
                 <>
                     <Section title={context.t('insp_value')}>
+                        <DisplaySelect
+                            node={node}
+                            patch={patch}
+                            context={context}
+                        />
                         <SourceField
                             label={context.t('insp_source')}
                             value={node.value}
@@ -359,6 +415,13 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                             context={context}
                             clearable
                         />
+                        {node.display === 'none' ? null : (
+                            <SwitchTextFields
+                                node={node}
+                                patch={patch}
+                                context={context}
+                            />
+                        )}
                         <Row>
                             <TextFieldRow
                                 label={context.t('insp_unit')}
@@ -369,6 +432,7 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                             />
                             <NumberField
                                 label={context.t('insp_decimals')}
+                                integer
                                 value={node.decimals}
                                 placeholder={context.t('insp_auto')}
                                 min={0}
@@ -482,9 +546,9 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                     />
 
                     {node.kind === 'storage' ? (
-                        <Section title={context.t('insp_soc')}>
+                        <Section title={mediumWord('insp_soc', config, context.t)}>
                             <SourceField
-                                label={context.t('insp_soc_source')}
+                                label={mediumWord('insp_soc_source', config, context.t)}
                                 value={node.soc}
                                 sameAsValue
                                 onChange={soc => patch({ soc })}
@@ -542,6 +606,37 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                                 />
                                 <Row>
                                     <TextFieldRow
+                                        label={context.t('insp_badge_true')}
+                                        value={switchText(badge.textMap, true)}
+                                        onChange={text =>
+                                            patch({
+                                                badges: (node.badges || []).map((item, i) =>
+                                                    i === index
+                                                        ? { ...item, textMap: withSwitchText(item.textMap, true, text) }
+                                                        : item,
+                                                ),
+                                            })
+                                        }
+                                    />
+                                    <TextFieldRow
+                                        label={context.t('insp_badge_false')}
+                                        value={switchText(badge.textMap, false)}
+                                        onChange={text =>
+                                            patch({
+                                                badges: (node.badges || []).map((item, i) =>
+                                                    i === index
+                                                        ? {
+                                                              ...item,
+                                                              textMap: withSwitchText(item.textMap, false, text),
+                                                          }
+                                                        : item,
+                                                ),
+                                            })
+                                        }
+                                    />
+                                </Row>
+                                <Row>
+                                    <TextFieldRow
                                         label={context.t('insp_unit')}
                                         value={badge.unit}
                                         placeholder={sourceUnit(badge.src, props.units) || config.defaults?.unit || '-'}
@@ -555,6 +650,7 @@ function NodePanel(props: InspectorProps & { node: FlowNode }): React.JSX.Elemen
                                     />
                                     <NumberField
                                         label={context.t('insp_decimals')}
+                                        integer
                                         value={badge.decimals}
                                         min={0}
                                         max={6}
@@ -658,7 +754,8 @@ function EdgePanel(props: InspectorProps & { edge: FlowEdge }): React.JSX.Elemen
     const nodeOptions = config.nodes.map(node => ({
         value: node.id,
         label: node.label || node.id,
-        icon: KIND_ICONS[node.kind],
+        // Its own symbol, not the one of its kind: that is how it looks on the canvas
+        icon: kindIcon(node.kind, config, node.icon),
     }));
     const mode = edge.mode || 'signed';
 
@@ -743,6 +840,18 @@ function EdgePanel(props: InspectorProps & { edge: FlowEdge }): React.JSX.Elemen
                 ) : null}
                 <Row>
                     <TextFieldRow
+                        label={context.t('insp_badge_true')}
+                        value={switchText(edge.textMap, true)}
+                        onChange={text => patch({ textMap: withSwitchText(edge.textMap, true, text) })}
+                    />
+                    <TextFieldRow
+                        label={context.t('insp_badge_false')}
+                        value={switchText(edge.textMap, false)}
+                        onChange={text => patch({ textMap: withSwitchText(edge.textMap, false, text) })}
+                    />
+                </Row>
+                <Row>
+                    <TextFieldRow
                         label={context.t('insp_unit')}
                         value={edge.unit}
                         placeholder={edgeStateUnit || config.defaults?.unit || '-'}
@@ -751,6 +860,7 @@ function EdgePanel(props: InspectorProps & { edge: FlowEdge }): React.JSX.Elemen
                     />
                     <NumberField
                         label={context.t('insp_decimals')}
+                        integer
                         value={edge.decimals}
                         placeholder={context.t('insp_auto')}
                         min={0}
@@ -761,7 +871,7 @@ function EdgePanel(props: InspectorProps & { edge: FlowEdge }): React.JSX.Elemen
                 <NumberField
                     label={context.t('insp_threshold')}
                     value={edge.threshold}
-                    placeholder={DEFAULT_THRESHOLD}
+                    placeholder={edgeThreshold({ ...edge, threshold: undefined }, config)}
                     helperText={context.t('insp_threshold_hint')}
                     min={0}
                     onChange={threshold => patch({ threshold })}
@@ -955,7 +1065,11 @@ function CanvasPanel(props: InspectorProps): React.JSX.Element {
                 <SelectRow
                     label={context.t('insp_medium')}
                     value={config.defaults?.medium || 'energy'}
-                    options={MEDIUM_IDS.map(id => ({ value: id, label: context.t(MEDIA[id].label) }))}
+                    options={MEDIUM_IDS.map(id => ({
+                        value: id,
+                        label: context.t(MEDIA[id].label),
+                        icon: MEDIUM_ICONS[id],
+                    }))}
                     // Picking a medium is picking its unit and its dot speed -- the two numbers a
                     // user would otherwise have to know. Both stay editable right below.
                     onChange={id =>
@@ -976,6 +1090,18 @@ function CanvasPanel(props: InspectorProps): React.JSX.Element {
                 >
                     {context.t('insp_medium_hint')}
                 </Typography>
+                <CheckRow
+                    label={context.t('insp_hydraulics')}
+                    value={config.defaults?.hydraulics}
+                    onChange={hydraulics => patchDefaults({ hydraulics: hydraulics || undefined })}
+                />
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', mb: 1 }}
+                >
+                    {context.t('insp_hydraulics_hint')}
+                </Typography>
                 <Row>
                     <TextFieldRow
                         label={context.t('insp_unit')}
@@ -986,6 +1112,7 @@ function CanvasPanel(props: InspectorProps): React.JSX.Element {
                     />
                     <NumberField
                         label={context.t('insp_decimals')}
+                        integer
                         value={config.defaults?.decimals}
                         placeholder={context.t('insp_auto')}
                         min={0}

@@ -93,6 +93,17 @@ a commit with a `merge` key: presses with the same key within `MERGE_WINDOW_MS` 
 undo stack instead of pushing, so holding a key is one undo step. Undo, redo, save and any unkeyed
 commit end the merge.
 
+## Saving
+
+`onSave` belongs to the host: the admin tab writes the state and stays open (`variant: 'inline'`),
+the dialog of a widget hands the document back and closes. The **autosave switch** therefore only
+exists inline -- a dialog that closed itself ten seconds after the last stroke would be a bug. It is
+a `usePersistentState` preference (`flow.editor.autosave`, so it is of the browser, not of the
+diagram; `flow.tab.selected` remembers which diagram was open the same way) and an effect with `config` in its dependencies: every change clears the pending timer and
+starts a new one, which is what makes it a debounce rather than an interval (`AUTOSAVE_MS`). While the clock runs, the switch's symbol turns
+(`flow-spin`, off under `prefers-reduced-motion`): the wait is then visible, and nobody wonders
+whether anything is going to happen.
+
 ## Moving the middle of a line
 
 An `orthogonal` route whose two ends leave in the same orientation has a middle segment (vertical
@@ -103,6 +114,10 @@ of the way from the start to the end (`bendAt`), so it keeps its place when a no
 click or the inspector's button removes it. No segment -- and no handle -- for curves, straight lines,
 single-corner routes, waypoint routes, and routes whose ends are level (the segment would have length
 zero).
+
+While a connection is being drawn, `nodeAt()` is asked on every pointer move, not only on release:
+the node it finds is drawn with a ring in the colour of the line and the rubber band snaps to its
+middle, so it is visible *where the line would land* before letting go.
 
 ## Fill levels and "same as value"
 
@@ -198,6 +213,17 @@ and the unit a counter of the day is read in when its object declares none (`cou
 energy, litres for water). Everything it sets is an ordinary field the user can overrule, and a
 document without a medium behaves exactly like one of energy.
 
+A store of water or gas is read as **how full it is**: `Medium.storageUnit` ('%') is used for a
+`storage` node whose value names no unit of its own and whose state object declares none, before the
+diagram's default. A battery is not -- its number is the power it takes or gives, and reading that as
+a percentage would be wrong by three orders of magnitude, so energy and heat leave it unset. A
+percentage prints without decimals everywhere (`defaultDecimals`), as the charge line always has.
+
+It also decides what counts as **nothing flowing**: `DEFAULT_THRESHOLD` (1 W) is the energy case,
+`Medium.threshold` the general one, and `edgeThreshold(edge, config)` converts it into the base unit
+the runtime compares in. One watt of standby is noise; one cubic metre of gas an hour is a boiler at
+full power, and a fixed 1 would draw every gas diagram dead.
+
 Two things follow the unit rather than the medium, because the unit is what is actually true:
 
 - **The time base of an amount** (`integralSeconds` in `format.ts`). `l/min` integrated over hours is
@@ -206,8 +232,91 @@ Two things follow the unit rather than the medium, because the unit is what is a
 - **Whether the amount climbs into the next prefix.** Only energy does: 5000 Wh is 5 kWh, but nobody
   writes 5 kl where they mean five cubic metres.
 
-The designer's wording comes from `kindLabel()` in the editor package: `kind_source_water` when the
-dictionary has it, `kind_source` otherwise -- so only the words that really differ need an entry.
+The designer's wording comes from `mediumWord()` in `labels.ts` of the editor package, used by
+`kindLabel()` and `kpiLabel()`: `kind_source_water` when the dictionary has it, `kind_source`
+otherwise -- so only the words that really differ need an entry. "Autarky" is the rainwater share of
+a water diagram for the same reason; the formula is the same, only the word is not.
+
+The assistant reads the medium as well (`isFlowState(common, medium)`, `guessDevice(oid, name,
+medium)`, `buildFromDevices(..., { medium })`): the units it accepts, the keywords it guesses from
+and the icons it gives a consumer all come from `KEYWORDS`, `FLOW_UNITS` and `SINK_ICONS` per medium.
+Only energy may be recognised without a unit -- `value.power` is the one role ioBroker has for this,
+and a unitless number in a water installation is a number of anything.
+
+The medium is **asked before a diagram exists**, not set afterwards: the admin tab's "new diagram"
+dialog has it next to the name (`emptyConfig(medium)`, so the empty document already carries the unit
+and the dot speed), and the template chooser opens on the medium of the diagram it was opened from
+and shows only that medium's layouts plus the empty one. `mediumDefaults()` in `media.ts` is the one
+place that says what picking a medium writes: `presets.ts`, `emptyConfig()` and the assistant all go
+through it.
+
+**One symbol per kind, everywhere.** `kindIcon()` in the editor draws the icon a node of that kind
+really gets here (`defaultIcon(kind, config)`, or the node's own), and the palette, the inspector's
+kind list, its from/to lists and the assistant all go through it. `KIND_ICONS` is only the fallback
+for the kinds that draw no icon at all -- a junction, a caption, an image. That is why a palette
+entry carries an icon only when it is *not* simply a kind (a valve, a pump): an override there would
+show one symbol on the button and another in the list right next to it.
+
+**What the designer offers to place** is `packages/core/src/palette.ts`, a list of entries per
+medium rather than a list of kinds: a valve, a pump and a junction are all one `bus` -- a node that
+something flows through -- and only the icon and the name tell them apart. An entry's `icon` is
+written onto the node it creates (`''` means "deliberately none"), its `label` is an i18n key, and
+without one the name is the kind's own in that medium (`paletteLabel` -> `kindLabel`). The energy
+palette is deliberately the list it always was, one entry per kind and nothing overridden; a test
+asserts exactly that, so adding a medium cannot silently change what an energy diagram offers.
+
+The **inspector's type list is the same list**, not the raw kinds: `paletteEntryOf()` reads a node
+back into the entry it was placed from (kind *and* icon, since three entries share `bus`), and
+`paletteChange()` says what switching writes -- an entry's own symbol comes with it, the previous
+entry's symbol goes with it, and an icon the user picked survives. Without this, a valve placed on
+the left could never be turned into a pump on the right, and the two lists would disagree about what
+exists.
+
+Two more fields of an entry decide what a placed element **carries**:
+
+- `reads` binds an empty state (`value: { oid: '' }`). A valve, a pump, a meter show their own
+  reading; a bare junction shows what passes through it, so it has none. A `bus` **with an icon** is
+  therefore a full node in the inspector as well -- the decoration rule asks for the icon, not for
+  the kind.
+- `onOff` are the i18n keys for true and false. The element is placed with `display: 'text'` and a
+  text map for `true`/`1`/`false`/`0`, because the state behind a valve is a boolean far more often
+  than a number and "1 l/min" is nonsense; it also gets the medium's `accent` as its colour and one
+  rule that greys it at zero (`SWITCH_OFF_COLOR`), so an open valve is visibly open. A percentage
+  valve needs nothing else: 0 is still off, and the number shows as it is.
+
+**An extra value can be a switch too.** `NodeBadge.textMap` is the same map as the node's, looked up
+with the raw state value, and the inspector offers the two words that matter (`insp_badge_true` /
+`insp_badge_false`) rather than the node's list of pairs -- a badge is a boolean or a number, and
+"1,00 l/min" under a node is nonsense for a valve. A value the map does not name still shows as a
+number, so half a map is not a trap. `switchTextMap` / `switchText` / `withSwitchText` in
+`palette.ts` are the one place that knows `true` and `1` are the same thing, used by the palette when
+it places a valve, by the badge fields and by the node's own; they need `raw` in the options, which
+every host already passes for the node status texts.
+
+**The node's value has the same two fields**, right under its source, and they work on their own: a
+word the map names **wins over the number whatever `display` says** (`word` in step 3). The flag was
+a trap the other way round -- the user writes "offen" and "zu", nothing happens, because a second
+field further down still says "number". `display: 'text'` now only decides what an *unmapped* value
+does: a status string shows as it is, a number keeps its format. The four switch keys are edited in
+those two fields and deliberately left out of the list of pairs below them, which is for everything
+else a state may say.
+
+**A connection has the same two fields**, right under its source (`FlowEdge.textMap`, `edgeWord` in
+step 2). Only the label changes: the number still decides the direction, the threshold and how fast
+the dots run, and a `split` edge is read from whichever of its two sources is currently showing. "No
+value" it already had -- the `showValue` switch below the fields.
+
+**`display: 'none'` is the third option**: the node shows no number at all, and the symbol moves into
+the middle of the body instead of keeping the lower half free (`hasValue` in `FlowView`). The value is
+still read -- rules, the fill level, the key figures and the worked-out flow all use it -- which is
+what the hint under the field says. The select sits at the **top** of the value section, above the
+source: it decides what the section is for, and it is what a user looks for when a node should be
+just a symbol.
+
+Every template names its medium in `PRESETS`, and `npm run gallery` binds demo values per medium
+(`DEMO` in `tools/gallery.tsx`): 5200 is a house in watts and nonsense in cubic metres of gas. Both
+rendering tools take their node labels from the real dictionary (`translations.de`), never from a
+copy -- the copy fell behind the first time a template was added.
 
 ## Units
 
@@ -318,22 +427,133 @@ Two consequences for that file:
 - The `url` must keep its leading `./`. `ConfigCustom` resolves a bare path against *the adapter being
   configured*; only `./` escapes to an absolute one.
 
+## Working the flow out
+
+`packages/core/src/hydraulics.ts`, switched on per diagram with `defaults.hydraulics`. A water
+installation is not wired like an energy one: nobody meters every pipe, what exists is a valve that
+is open or shut, a pump that runs, a tank that is full, and maybe one flow sensor. From those few
+facts the lines follow.
+
+- **Roles, not new kinds.** `defaultRole(node)` reads what a node already is -- the kind, and for the
+  things that sit *in* a line its symbol (valve -> gate, pump -> driver, meter/flow sensor -> meter).
+  `node.hydraulic` overrules it; the inspector offers that list only while the switch is on.
+- **A shut element stops everything**, and a standing pump counts as shut -- that is what makes "pump
+  off" a dark diagram. A node whose state nobody has written is taken as open: an unconfigured
+  diagram should draw, not go dark.
+- **A pump is the one element with a side.** It pushes the way it was drawn, which is what keeps it
+  from feeding backwards into the tank that feeds it (`allowed()`).
+- **One taker at a time** (`computeHydraulics`). A tank both gives and takes, so a search that asks
+  "is this line between a giver and a taker" answers yes for the dead pipe out of a tank -- the taker
+  at the other end being that tank itself. The ways are therefore searched per taker, with that taker
+  struck from the givers.
+- **The amount comes from a measurement**: a meter or flow sensor, else a consumer reading its own
+  use, and only in the unit the diagram counts in. A pump never gives the amount -- it reports amperes
+  or a percentage, which says "it runs", not "how much". Then the line flows *without* a number
+  (`value === null`, `active === true`), which the renderer draws as a running line with no label.
+- **A line with a reading of its own is never touched**, and a diagram without the switch behaves
+  exactly as before.
+
+**Ways, not shares.** `waysTo()` walks backwards from a taker over the pipes to everything that can
+give -- never twice through one node, so no way runs in circles, capped by `MAX_WAYS` / `MAX_LENGTH`
+because a mesh of rings has more ways through it than anybody wants to count. Each way gets a
+`width`: the gates on it multiplied together, divided by its length, which is the only stand-in for
+the resistance of a pipe. The taker's demand is then divided over its ways by that width, and every
+line carries the **signed** sum of what runs through it. That one rule is all of it -- a chain, a
+branch, a half-open valve, two tanks on one tap, and a ring.
+
+**A ring needs no extra rule**, which is the point of doing it this way. Fed from one end, its two
+halves are equally wide and carry half each. Fed from two, each giver's short way and the other's long
+way use the pipe between them in *opposite* directions, the two shares cancel, and `|flow| < 1e-9`
+leaves it idle -- the stagnation point, where a plumber would also put it.
+
+**What a taker takes when it reads nothing** is how open the widest way to it is (`Way.gates`, the
+openings only, no length). The length divides *one* taker's demand over *its* ways; it must not decide
+how much that taker gets in the first place, or a flow sensor in one branch would lengthen that branch
+and starve it. A gate only counts as partly open when it reads **percent** -- a boolean valve says open
+or shut and nothing in between (`opening`). Two taps behind valves at 50 % and 100 % therefore get one
+part against two. Physically a valve at half a turn does not pass half the water; as a share between
+branches, that is what the picture means and the only reading the state supports.
+
+**From shares to litres.** Where every taker that really takes reads its own use, the shares already
+*are* the amounts (`exact && !guessed` -- a store that nothing can reach contributes neither). Failing
+that, one meter or flow sensor sets the scale: it reads what runs through *it*, so the factor is its
+reading divided by its own share and every other line follows. A sensor reading 3 in one of two equal
+branches therefore means 6 in the trunk. With neither, the lines run without a number.
+
+**A line the model left out carries zero**, not the placeholder (`still` in step 2 of the runtime).
+Where the flow is worked out, a line missing from the result is *known* to be still, and the
+placeholder would claim that nobody knows. That is what makes the meeting point of a ring readable --
+it reads 0,00 l/min -- and the rule has to be the same for a whole plant whose pump stands, or one
+dead pipe would answer differently from a dead installation. It says nothing about the lines that do
+flow: those still show no number until something measures one.
+
+Still not a simulation: no pressure, no head, no pipe diameters. It says what a person reading the
+picture would say, and the tests are written as exactly those sentences. `npm run gallery` draws five
+rings after the templates -- one house connection, the same with a valve at half a turn, two givers
+with the dead pipe between them, and a tank with its pump running and standing -- because that is the
+part no single assertion shows.
+
+## What a caption says
+
+`packages/core/src/template.ts`. The text of a `label` node may carry placeholders: `{{ val }}` is
+the value of the state the caption is bound to (`node.value`), `{{ userdata.0.x.val }}` any other
+one, `{{ ts }}`/`{{ lc }}` when that state was written or changed -- as "5 minutes ago", because that
+is what a caption is for -- and `{{ ts_abs }}` the same as a date. A placeholder that reads nothing
+becomes an empty string, so the text around it still reads.
+
+- **The last segment decides**: `val`, `ts`, `lc`, `unit`, `ts_abs`, `lc_abs` are fields, anything
+  else is a state id whose value is wanted (`{{ userdata.0.x }}`).
+- **A placeholder may compute**, and then it is the expression language of `expr.ts` -- the same one
+  the value sources use, so there is no second parser. Every reference is replaced by a generated
+  variable and handed over as a number; one unknown state makes the whole expression null, as it does
+  in a source. Whether a placeholder computes is decided by whitespace or one of `+*/%^()`, and
+  deliberately *not* by a minus: `hm-rpc.0.x` is an id, `val - 1` is a subtraction.
+- `templateOids()` is what `collectOids()` adds for a caption, so the hosts subscribe to what the
+  text reads -- including every state named inside a calculation.
+- Rendering happens in step 3 of `computeRuntime` (`NodeRuntime.text`), where the values, the times
+  and the units already are; the renderer draws that, never the template.
+
+## Fields that name an object
+
+Every field that takes an object id (`ObjectIdField` in `SourceField.tsx`, used by `StateIdRow` and
+`StateSourceRow`) shows the object's **symbol in front of the id and its name underneath**. The
+symbol is searched the way the object browser searches it -- `Utils.findObjectIcon()` of
+`@iobroker/gui-components` walks the state, then its channel, then its device -- and its path is made
+relative to the page with the same `pageImagePrefix()` the object dialog needs. Both are cached per
+page in a module-level map, because the same id is asked for by several fields and by every
+re-render; `useObjectBadge` never writes state on the way in, only when a read comes back.
+
+**Drawn with `Icon` of `@iobroker/gui-components`, not with an `img`.** It inlines a `data:image/svg`
+through `react-inlinesvg`, so a single-colour symbol takes the colour of the text around it -- in an
+`img` a black-drawn icon stays black and disappears on a dark theme. It also tells a single character
+from a path, which is the other half of what `findObjectIcon` may return.
+
+The **"choose" button** beside such a field is aligned to the top (`alignItems: 'flex-start'`) and
+offset by the 16 px the label of a standard `TextField` takes, so it sits beside the input rather than
+beside the object's name underneath it. The row needs `useFlexGap` for that: with its spacing as
+margins, `Stack` resets every child's other margins to zero and the offset would be dropped.
+
 ## Where a diagram lives
 
 `packages/core/src/storage.ts`. A widget attribute holds **either** a diagram (inline) **or** a
-reference `{ "$ref": "flow.0.diagrams.<id>" }` to one stored as a state in the adapter's
-namespace. The admin tab only ever edits stored ones.
+reference `{ "$ref": "flow.0.diagrams.<id>" }` to one stored in the adapter's namespace. The admin tab
+only ever edits stored ones.
 
-- **States, not objects**, because both hosts already subscribe to states: an edit saved in the admin
-  tab reaches every open widget through the same subscription that delivers the readings. The widget's
-  `efOnStateChange` routes the reference's id to "parse as diagram, then resync subscriptions" and
-  everything else to "number".
+- **An object of type `config`, with the document in `native.flow`** (`diagramNative()`,
+  `diagramFromNative()`). A diagram is a configuration, not a reading: a state would carry it as a
+  string in its value and claim a timestamp, a quality and an acknowledgement for something that never
+  changes by itself. The container `flow.<n>.diagrams` is a folder.
+- **Both hosts follow it with `subscribeObject`** and read it once with `getObject` (`efWatchDiagram`
+  in either widget), so an edit saved in the admin tab still reaches every open view the moment it is
+  written. It is deliberately *not* part of the state subscriptions any more -- those are the readings,
+  and only those.
+- **Saving writes the whole object**, never `extendObject`: that merges `native` key by key, so a node
+  or a setting the user removed would survive the save and come back on the next load.
 - **`readDiagramAttribute()` must be asked before `normalizeConfig()`**, which turns a reference into an
   empty diagram without complaint (a reference has none of a diagram's keys).
 - **References are only followed into `flow.<n>.diagrams.*`** (`isDiagramId`), so a widget cannot
-  be pointed at an arbitrary state and have its value parsed; a stored diagram that is itself a
+  be pointed at an arbitrary object and have its `native` read; a stored diagram that is itself a
   reference is refused rather than followed.
-- Written with **`ack: true`**: the adapter is web-only, nothing would ever acknowledge the value.
 - Renaming changes `common.name` only. The id is what every widget refers to.
 
 The UI for choosing between the two is `DiagramAttribute` in the editor package, used by both hosts
@@ -385,6 +605,13 @@ against `.async`. The vis-2 widget's sync set should stay around 100 kB.
   factor on it, shown as a percentage. Relative so that "all labels larger" stays one field. Use
   `pageLabelSize` / `nodeLabelSize`, never the numbers directly; `fitCanvas` reserves room below the
   nodes from them.
+- **A number field keeps what is being typed** (`NumberField` in `fields.tsx`). While it has focus the
+  text belongs to the input, not to the document: without that, "0." and "0," never exist, the
+  document never sees a decimal separator and a tenth cannot be entered at all. Its arrows follow the
+  number they start from -- tenths below two, whole units above -- because a threshold of 0.1 and a
+  power of 3000 are both set with the same field. A field that **counts** something says `integer`:
+  it steps in whole numbers and rounds what is typed, or "0.8 decimal places" is a thing a user can
+  enter.
 - **Decimal places follow the unit prefix, not the magnitude** (`defaultDecimals` in `format.ts`).
   Whole watts, two decimals once it is kilowatts — a magnitude rule prints "40,0 W" and "0,00 W", and
   no meter reads like that.
@@ -407,7 +634,10 @@ against `.async`. The vis-2 widget's sync set should stay around 100 kB.
 - **The animation is CSS on a second dashed copy of each line**, not JavaScript. `--ef-shift` is one
   gap, so a cycle ends where it started. The host decides *whether* it runs (`animate`) because only
   the host knows about hidden tabs, off-screen widgets and `prefers-reduced-motion`; when it is off,
-  an active edge draws a static arrow instead.
+  an active edge draws a static arrow instead. **A line that flows without a number runs at the
+  reference speed** (`dotDuration(null)`): the speed is proportional to the amount, and where nothing
+  measures one there is none to derive -- but a worked-out line that is alive and stands still is
+  exactly what the whole feature must not look like.
 - **A style adjusts the host theme, it never replaces it** (`styles.ts`). `styledTheme()` runs first
   in `computeRuntime`, so the colour a node or a muted line is computed with is the one it is drawn
   with; the renderer asks the `DiagramStyle` for decisions (`cards`, `shadow`, `labelInside`, ...),

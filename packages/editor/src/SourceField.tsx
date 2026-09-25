@@ -16,6 +16,7 @@ import {
     Button,
     FormControl,
     IconButton,
+    InputAdornment,
     InputLabel,
     MenuItem,
     Select,
@@ -25,7 +26,9 @@ import {
     Typography,
 } from '@mui/material';
 import { Add, Clear, DragHandle, ExpandMore, Functions, List as ListIcon, Numbers } from '@mui/icons-material';
-import { DialogSelectID } from '@iobroker/gui-components';
+import { DialogSelectID, Icon, Utils } from '@iobroker/gui-components';
+
+import { NumberField } from './fields';
 
 import {
     compileExpr,
@@ -86,15 +89,11 @@ export function ScalingFields<T extends SrcScaling>(props: {
         value.min !== undefined ||
         value.max !== undefined;
 
-    const setNumber = (key: 'factor' | 'offset' | 'deadband' | 'min' | 'max', raw: string): void => {
+    const setNumber = (key: 'factor' | 'offset' | 'deadband' | 'min' | 'max', parsed: number | undefined): void => {
         const next = { ...value };
-        if (raw === '') {
+        if (parsed === undefined) {
             delete next[key];
         } else {
-            const parsed = Number(raw.replace(',', '.'));
-            if (Number.isNaN(parsed)) {
-                return;
-            }
             next[key] = parsed;
         }
         onChange(next);
@@ -134,14 +133,15 @@ export function ScalingFields<T extends SrcScaling>(props: {
                             key={field.key}
                             title={context.t(field.tooltip)}
                         >
-                            <TextField
-                                variant="standard"
-                                size="small"
-                                label={context.t(field.label)}
-                                value={value[field.key] ?? ''}
-                                onChange={event => setNumber(field.key, event.target.value)}
-                                slotProps={{ htmlInput: { inputMode: 'decimal' } }}
-                            />
+                            {/* The tooltip needs an element it can hold on to; a field is a component */}
+                            <Box>
+                                <NumberField
+                                    label={context.t(field.label)}
+                                    value={value[field.key]}
+                                    step={0.1}
+                                    onChange={(parsed: number | undefined) => setNumber(field.key, parsed)}
+                                />
+                            </Box>
                         </Tooltip>
                     ))}
                 </Box>
@@ -196,6 +196,116 @@ export interface StateIdRowProps {
  * `StateSourceRow` below is the same thing for a `SrcState`, which carries the rescaling as well;
  * both open the same dialog, so an id is picked the same way everywhere in the designer.
  */
+
+/**
+ * What an object looks like in a field that names it: its symbol and its name.
+ *
+ * The symbol is searched the way the object browser searches it (`Utils.findObjectIcon`): the state
+ * itself, then its channel, then its device -- whichever names one first. Both are cached per page,
+ * because the same id is asked for by every field that shows it and by every re-render.
+ */
+const badgeCache = new Map<string, ObjectBadge>();
+
+interface ObjectBadge {
+    /** A path, an inline svg, a single character, or null -- whatever `Icon` takes */
+    icon: string | null;
+    name: string;
+}
+
+const EMPTY_BADGE: ObjectBadge = { icon: null, name: '' };
+
+/** An icon path from `Utils`, made relative to the page the designer is on */
+function iconSrc(icon: string | null, context: EditorContext): string | null {
+    if (!icon || icon.startsWith('data:') || icon.startsWith('http') || icon.startsWith('.') || icon.startsWith('/')) {
+        return icon;
+    }
+    return `${context.imagePrefix || pageImagePrefix()}/${icon}`;
+}
+
+export function useObjectBadge(context: EditorContext, oid: string | undefined): ObjectBadge {
+    const id = (oid || '').trim();
+    // What is known already is used while rendering; the effect only ever reports what it *read*,
+    // so there is no state to set on the way in
+    const [loaded, setLoaded] = React.useState<{ id: string; badge: ObjectBadge } | null>(null);
+
+    React.useEffect(() => {
+        if (!id || badgeCache.has(id)) {
+            return undefined;
+        }
+        let cancelled = false;
+        void (async (): Promise<void> => {
+            let found: ObjectBadge = EMPTY_BADGE;
+            try {
+                const object = await context.socket.getObject(id);
+                const name = object ? Utils.getObjectNameFromObj(object, null, { language: context.lang }) : '';
+                const icon = await Utils.findObjectIcon(id, context.socket);
+                found = { icon: iconSrc(icon, context), name: name === id ? '' : name };
+            } catch {
+                found = EMPTY_BADGE;
+            }
+            badgeCache.set(id, found);
+            if (!cancelled) {
+                setLoaded({ id, badge: found });
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id, context.socket, context.lang]);
+
+    if (!id) {
+        return EMPTY_BADGE;
+    }
+    return badgeCache.get(id) ?? (loaded?.id === id ? loaded.badge : EMPTY_BADGE);
+}
+
+interface ObjectIdFieldProps {
+    label: string;
+    value: string | undefined;
+    placeholder?: string;
+    helperText?: string;
+    context: EditorContext;
+    onChange: (value: string) => void;
+}
+
+/** The text field of an object id: symbol in front, name underneath */
+function ObjectIdField(props: ObjectIdFieldProps): React.JSX.Element {
+    const { label, value, placeholder, helperText, context, onChange } = props;
+    const badge = useObjectBadge(context, value);
+
+    return (
+        <TextField
+            fullWidth
+            variant="standard"
+            size="small"
+            label={label}
+            value={value || ''}
+            placeholder={placeholder}
+            helperText={badge.name || helperText}
+            onChange={event => onChange(event.target.value)}
+            slotProps={{
+                input: {
+                    startAdornment: badge.icon ? (
+                        <InputAdornment position="start">
+                            {/* The object browser's own component: it inlines an svg instead of
+                                putting it in an `img`, so a single-colour symbol takes the colour of
+                                the text around it and does not stay black on a dark theme. It also
+                                knows a single character from a path, which an `img` does not */}
+                            <Icon
+                                src={badge.icon}
+                                alt=""
+                                style={{ width: 20, height: 20, objectFit: 'contain' }}
+                                styleUTF8={{ fontSize: 18, lineHeight: '20px', height: 20, marginTop: 0 }}
+                            />
+                        </InputAdornment>
+                    ) : undefined,
+                },
+            }}
+        />
+    );
+}
+
 export function StateIdRow(props: StateIdRowProps): React.JSX.Element {
     const { label, value, placeholder, helperText, context, onChange } = props;
     const [pickerOpen, setPickerOpen] = React.useState(false);
@@ -203,26 +313,29 @@ export function StateIdRow(props: StateIdRowProps): React.JSX.Element {
     return (
         <>
             <Stack
-                sx={{ alignItems: 'flex-end', width: '100%' }}
+                sx={{ alignItems: 'flex-start', width: '100%' }}
                 direction="row"
                 spacing={1}
+                // With the spacing as a gap rather than a margin on the children, the button may
+                // carry a margin of its own -- Stack's margin rule would otherwise reset it to zero
+                useFlexGap
             >
-                <TextField
-                    fullWidth
-                    variant="standard"
-                    size="small"
+                <ObjectIdField
                     label={label}
-                    value={value || ''}
+                    value={value}
                     placeholder={placeholder}
                     helperText={helperText}
-                    onChange={event => onChange(event.target.value)}
+                    context={context}
+                    onChange={onChange}
                 />
                 <Button
                     size="small"
                     variant="outlined"
                     startIcon={<ListIcon />}
                     onClick={() => setPickerOpen(true)}
-                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                    // The label of a standard field takes the first 16 px, and the object's name sits
+                    // under the input. The button belongs beside the input, not beside the name
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: '16px' }}
                 >
                     {context.t('src_browse')}
                 </Button>
@@ -268,24 +381,25 @@ export function StateSourceRow(props: StateSourceRowProps): React.JSX.Element {
     return (
         <>
             <Stack
-                sx={{ alignItems: 'flex-end' }}
+                sx={{ alignItems: 'flex-start' }}
                 direction="row"
                 spacing={1}
+                useFlexGap
             >
-                <TextField
-                    fullWidth
-                    variant="standard"
-                    size="small"
+                <ObjectIdField
                     label={label}
-                    value={value.oid || ''}
-                    onChange={event => onChange({ ...value, oid: event.target.value })}
+                    value={value.oid}
+                    context={context}
+                    onChange={oid => onChange({ ...value, oid })}
                 />
                 <Button
                     size="small"
                     variant="outlined"
                     startIcon={<ListIcon />}
                     onClick={() => setPickerOpen(true)}
-                    sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                    // The label of a standard field takes the first 16 px, and the object's name sits
+                    // under the input. The button belongs beside the input, not beside the name
+                    sx={{ flexShrink: 0, whiteSpace: 'nowrap', mt: '16px' }}
                 >
                     {context.t('src_browse')}
                 </Button>

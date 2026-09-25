@@ -1,4 +1,3 @@
-// @ts-expect-error no types
 import react from '@vitejs/plugin-react';
 import { fileURLToPath } from 'node:url';
 
@@ -7,7 +6,7 @@ import { fileURLToPath } from 'node:url';
  * here. Change it to work against another machine, e.g. `'http://localhost:8081'`; the environment
  * variable `IOBROKER_ADMIN` overrides it for a single run without touching the file.
  */
-const ADMIN_URL = process.env.IOBROKER_ADMIN || 'http://vitanova:8081';
+const ADMIN_URL = process.env.IOBROKER_ADMIN || 'http://100.100.159.33:8081';
 
 /**
  * The development preview: the admin-side GUI with hot reload, against a running ioBroker.

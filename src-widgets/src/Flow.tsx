@@ -31,7 +31,7 @@ import {
     loadUnits,
     FlowView,
     emptyConfig,
-    parseStoredDiagram,
+    diagramFromNative,
     readDiagramAttribute,
     themeFromMui,
     toNumber,
@@ -91,6 +91,8 @@ const CLOCK_MS = 30000;
 export default class Flow extends Generic<FlowRxData, FlowState> {
     /** The ids currently subscribed, so a configuration change only diffs */
     private efSubscribed: string[] = [];
+    /** The stored diagram this widget is watching, if it shows one */
+    private efWatched: string | null = null;
     private efPending: Record<string, number | null> = {};
     private efPendingTimes: Record<string, StateTimes & { raw?: unknown }> = {};
     private efClock: ReturnType<typeof setInterval> | null = null;
@@ -228,6 +230,7 @@ export default class Flow extends Generic<FlowRxData, FlowState> {
             this.props.context.socket.unsubscribeState(id, this.efOnStateChange);
         }
         this.efSubscribed = [];
+        this.efWatchDiagram(null);
     }
 
     private efMotionQuery: MediaQueryList | null = null;
@@ -274,15 +277,52 @@ export default class Flow extends Generic<FlowRxData, FlowState> {
         return stored && stored.id === attribute.ref && stored.config ? stored.config : emptyConfig();
     }
 
-    private efOnStateChange = (id: string, state: ioBroker.State | null | undefined): void => {
-        // The referenced diagram arrives through the same subscription as the readings. It is not a
-        // number, and a change to it changes which readings are needed -- so it takes its own path
-        if (id === this.efRef) {
-            this.setState({ efStored: { id, config: parseStoredDiagram(state?.val) } }, () =>
-                this.efSyncSubscriptions(),
-            );
+    /**
+     * Follow the referenced diagram.
+     *
+     * It is an object, not a reading, so it comes through `subscribeObject`: an edit saved in the
+     * admin tab reaches this widget the moment it is written, without a reload. A change to it
+     * changes which readings are needed, so the subscriptions are resynced afterwards.
+     *
+     * @param id the diagram to watch, or null to stop watching
+     */
+    private efWatchDiagram(id: string | null): void {
+        if (this.efWatched === id) {
             return;
         }
+        const socket = this.props.context.socket;
+        if (this.efWatched) {
+            socket.unsubscribeObject(this.efWatched, this.efOnDiagramChange).catch(() => undefined);
+        }
+        this.efWatched = id;
+        if (!id) {
+            return;
+        }
+        socket
+            .subscribeObject(id, this.efOnDiagramChange)
+            .catch((error: unknown) => console.warn(`flow: cannot watch ${id}: ${String(error)}`));
+        socket
+            .getObject(id)
+            .then(object => {
+                if (!this.efUnmounted && this.efWatched === id) {
+                    this.setState({ efStored: { id, config: diagramFromNative(object?.native) } }, () =>
+                        this.efSyncSubscriptions(),
+                    );
+                }
+            })
+            .catch((error: unknown) => console.warn(`flow: cannot read ${id}: ${String(error)}`));
+    }
+
+    private efOnDiagramChange = (id: string, object: ioBroker.Object | null | undefined): void => {
+        if (this.efUnmounted || id !== this.efWatched) {
+            return;
+        }
+        this.setState({ efStored: { id, config: diagramFromNative(object?.native) } }, () =>
+            this.efSyncSubscriptions(),
+        );
+    };
+
+    private efOnStateChange = (id: string, state: ioBroker.State | null | undefined): void => {
         this.efPending[id] = state ? toNumber(state.val) : null;
         this.efPendingTimes[id] = { ts: state?.ts, lc: state?.lc, raw: state?.val };
         if (this.efFlushTimer) {
@@ -345,13 +385,9 @@ export default class Flow extends Generic<FlowRxData, FlowState> {
      * flash back to "--".
      */
     private efSyncSubscriptions(): void {
-        // The referenced diagram is subscribed like any reading: an edit in the admin tab then reaches
-        // this widget the moment it is saved, without a reload
-        const ref = this.efRef;
+        // The referenced diagram is an object and is watched separately; these are the readings
+        this.efWatchDiagram(this.efRef ?? null);
         const wanted = collectOids(this.efConfig);
-        if (ref && !wanted.includes(ref)) {
-            wanted.push(ref);
-        }
         const socket = this.props.context.socket;
 
         const added = wanted.filter(id => !this.efSubscribed.includes(id));
@@ -365,10 +401,7 @@ export default class Flow extends Generic<FlowRxData, FlowState> {
                 .subscribeState(added, this.efOnStateChange)
                 .catch((error: unknown) => console.warn(`flow: cannot subscribe: ${String(error)}`));
             // What the numbers are in comes from the objects; read once per state and page
-            loadUnits(
-                added.filter(id => id !== ref),
-                id => socket.getObject(id),
-            )
+            loadUnits(added, id => socket.getObject(id))
                 .then(() => !this.efUnmounted && this.setState(previous => ({ efUnits: previous.efUnits + 1 })))
                 .catch(() => undefined);
         }

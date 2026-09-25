@@ -2,13 +2,21 @@
  * Reading and writing the diagrams stored in the adapter's namespace.
  *
  * Shared by the admin tab, the vis-2 attribute and the device manager's settings -- all three talk to
- * the same states through the same socket API, and a diagram saved in one of them has to look the same
- * in the others. See `storage.ts` in the core for why these are states.
+ * the same objects through the same socket API, and a diagram saved in one of them has to look the
+ * same in the others. See `storage.ts` in the core for what those objects are.
  */
 import React from 'react';
 import type { Connection } from '@iobroker/gui-components';
 
-import { diagramPrefix, newDiagramId, parseStoredDiagram, serializeDiagram, type FlowConfig } from '@flow/core';
+import {
+    diagramFromNative,
+    diagramNative,
+    diagramPrefix,
+    mediumOf,
+    newDiagramId,
+    type FlowConfig,
+    type MediumId,
+} from '@flow/core';
 
 /**
  * The ioBroker convention for "the end of this key range" in an object view: U+9999 sorts after every
@@ -18,9 +26,11 @@ import { diagramPrefix, newDiagramId, parseStoredDiagram, serializeDiagram, type
 export const RANGE_END = '\u9999';
 
 export interface StoredDiagramInfo {
-    /** Full state id */
+    /** Full object id */
     id: string;
     name: string;
+    /** What it carries, read out of the document the object holds */
+    medium: MediumId;
 }
 
 /** The display name of a stored diagram, whatever language shape `common.name` has */
@@ -42,11 +52,56 @@ function nameOf(object: ioBroker.Object | undefined, id: string): string {
  * @param instance the adapter instance
  * @returns id and name of each
  */
+/**
+ * Every object of a type, as rows rather than as a map.
+ *
+ * The `config` view of the object database is `emit(doc.common.name, doc)`: its rows are keyed by the
+ * display name, not by the id. The id range still selects the right objects -- that is what the
+ * database filters on -- but the keys that come back are names, so two diagrams called the same would
+ * land on the same key and the wrapper's map would keep only one of them. The rows are therefore read
+ * as rows through the raw socket, which is what the wrapper does internally anyway, and the fallback
+ * takes the values of the map rather than its keys.
+ *
+ * @param socket the connection
+ * @param type the object type to list
+ * @param start first id of the range
+ * @param end last id of the range
+ * @returns the objects
+ */
+async function viewOf(socket: Connection, type: 'config', start: string, end: string): Promise<ioBroker.AnyObject[]> {
+    const raw = typeof socket.getRawSocket === 'function' ? socket.getRawSocket() : null;
+    if (raw && typeof raw.emit === 'function') {
+        return await new Promise((resolve, reject) => {
+            raw.emit(
+                'getObjectView',
+                'system',
+                type,
+                { startkey: start, endkey: end },
+                (error: unknown, result: { rows?: { value?: ioBroker.AnyObject }[] } | undefined) => {
+                    if (error) {
+                        reject(error instanceof Error ? error : new Error(JSON.stringify(error)));
+                    } else {
+                        resolve((result?.rows || []).map(row => row.value).filter(Boolean) as ioBroker.AnyObject[]);
+                    }
+                },
+            );
+        });
+    }
+    const mapped = await socket.getObjectView(start, end, type);
+    return Object.values(mapped || {});
+}
+
 export async function listDiagrams(socket: Connection, instance = 0): Promise<StoredDiagramInfo[]> {
     const prefix = diagramPrefix(instance);
-    const objects = await socket.getObjectView(prefix, `${prefix}${RANGE_END}`, 'state');
-    return Object.entries(objects || {})
-        .map(([id, object]) => ({ id, name: nameOf(object as ioBroker.Object, id) }))
+    // One call brings the documents with it: the diagram is the object, not a value beside it
+    const objects = await viewOf(socket, 'config', prefix, `${prefix}${RANGE_END}`);
+    return objects
+        .filter(object => typeof object?._id === 'string' && object._id.startsWith(prefix))
+        .map(object => ({
+            id: object._id,
+            name: nameOf(object as ioBroker.Object, object._id),
+            medium: mediumOf(diagramFromNative(object.native) ?? undefined).id,
+        }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -54,27 +109,35 @@ export async function listDiagrams(socket: Connection, instance = 0): Promise<St
  * Load one stored diagram.
  *
  * @param socket the connection
- * @param id full state id
- * @returns the diagram, or null if the state is empty or missing
+ * @param id full object id
+ * @returns the diagram, or null if the object is empty or missing
  */
 export async function loadDiagram(socket: Connection, id: string): Promise<FlowConfig | null> {
-    const state = await socket.getState(id);
-    return parseStoredDiagram(state?.val);
+    const object = (await socket.getObject(id)) as ioBroker.AnyObject | null | undefined;
+    const config = diagramFromNative(object?.native);
+    if (!config) {
+        // Not a warning about the user's data but about ours: every diagram we write has one
+        console.warn(`flow: ${id} holds no diagram (type ${object?.type ?? 'missing'})`);
+    }
+    return config;
 }
 
 /**
- * Write a diagram back into its state.
+ * Write a diagram back into its object.
  *
- * `ack: true` because there is no adapter process that would ever acknowledge it: the adapter is web
- * only, the value written *is* the configuration, and a listener that waits for the ack would wait
- * forever.
+ * The whole object is written rather than extended: `extendObject` merges `native` key by key, so a
+ * node or a setting the user removed would survive the save and come back on the next load.
  *
  * @param socket the connection
- * @param id full state id
+ * @param id full object id
  * @param config the diagram
  */
 export async function saveDiagram(socket: Connection, id: string, config: FlowConfig): Promise<void> {
-    await socket.setState(id, { val: serializeDiagram(config), ack: true });
+    const object = (await socket.getObject(id)) as ioBroker.AnyObject | null | undefined;
+    if (!object) {
+        throw new Error(`${id} does not exist`);
+    }
+    await socket.setObject(id, { ...object, native: diagramNative(config) } as ioBroker.SettableObject);
 }
 
 /**
@@ -100,18 +163,13 @@ export async function createDiagram(
     );
 
     await socket.setObject(id, {
-        type: 'state',
+        type: 'config',
         common: {
             name,
-            type: 'string',
-            role: 'json',
-            read: true,
-            write: true,
             desc: 'Flow diagram, edited in the admin tab "Flow"',
         },
-        native: {},
+        native: diagramNative(config),
     });
-    await saveDiagram(socket, id, config);
     return id;
 }
 
@@ -120,7 +178,7 @@ export async function createDiagram(
  * changing it would break every view that uses the diagram.
  *
  * @param socket the connection
- * @param id full state id
+ * @param id full object id
  * @param name the new display name
  */
 export async function renameDiagram(socket: Connection, id: string, name: string): Promise<void> {
@@ -132,7 +190,7 @@ export async function renameDiagram(socket: Connection, id: string, name: string
  * which is why the admin tab asks first.
  *
  * @param socket the connection
- * @param id full state id
+ * @param id full object id
  */
 export async function deleteDiagram(socket: Connection, id: string): Promise<void> {
     await socket.delObject(id);

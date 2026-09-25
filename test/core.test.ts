@@ -22,15 +22,19 @@ import {
 } from '../packages/core/src/format';
 import { collectOids, resolveSrc, toNumber, createValueGetter } from '../packages/core/src/values';
 import { computeRuntime } from '../packages/core/src/runtime';
-import { mediumOf } from '../packages/core/src/media';
+import { MEDIA, MEDIUM_IDS, mediumDefaults, mediumOf } from '../packages/core/src/media';
 import { anchorOf, bendAt, edgeGeometry } from '../packages/core/src/geometry';
 import {
+    DEFAULT_ANIMATION,
+    DEFAULT_CANVAS,
     defaultIcon,
+    emptyConfig,
     iconPlacement,
     nodeLabelSize,
     normalizeConfig,
     nodeRect,
     pageLabelSize,
+    edgeThreshold,
 } from '../packages/core/src/defaults';
 import { CLIPBOARD_FORMAT, copyNodes, parseClipboard, pasteNodes } from '../packages/core/src/clipboard';
 import { cachedUnit, loadUnits, sourceUnit } from '../packages/core/src/units';
@@ -49,14 +53,25 @@ import {
     buildFromDevices,
     guessDevice,
     guessDeviceKind,
-    isPowerState,
+    isFlowState,
     isSocState,
     objectName,
 } from '../packages/core/src/assistant';
 import { BUILTIN_ICONS, renderBuiltinIcon } from '../packages/core/src/icons';
 import FlowView from '../packages/core/src/FlowView';
 import { importEnergiefluss, isEnergiefluss } from '../packages/core/src/importEnergiefluss';
-import { buildPreset } from '../packages/core/src/presets';
+import { buildPreset, PRESETS } from '../packages/core/src/presets';
+import {
+    paletteChange,
+    paletteEntryOf,
+    paletteOf,
+    switchText,
+    switchTextMap,
+    withSwitchText,
+} from '../packages/core/src/palette';
+import { hasTemplate, renderTemplate, templateOids } from '../packages/core/src/template';
+import { defaultRole } from '../packages/core/src/hydraulics';
+import { kindLabel, mediumWord, paletteLabel } from '../packages/editor/src/labels';
 import {
     BUNDLE_FORMAT,
     createBundle,
@@ -68,9 +83,9 @@ import {
 import {
     isDiagramId,
     newDiagramId,
-    parseStoredDiagram,
+    diagramFromNative,
     readDiagramAttribute,
-    serializeDiagram,
+    diagramNative,
     slugify,
 } from '../packages/core/src/storage';
 import {
@@ -193,8 +208,11 @@ describe('format', () => {
         assert.equal(formatValue(8734, { unit: 'W', locale: 'en-US' }).text, '8.73 kW');
         assert.equal(formatValue(2_500_000, { unit: 'W', locale: 'en-US' }).text, '2.50 MW');
         // A unit with no multiples still goes by the magnitude
-        assert.equal(formatValue(98, { unit: '%', locale: 'en-US' }).text, '98.0 %');
         assert.equal(formatValue(12, { unit: 'A', locale: 'en-US' }).text, '12.0 A');
+        assert.equal(formatValue(4.2, { unit: 'bar', locale: 'en-US' }).text, '4.20 bar');
+        // ... except a percentage, which is a whole number, as the charge line has always shown it
+        assert.equal(formatValue(98, { unit: '%', locale: 'en-US' }).text, '98 %');
+        assert.equal(formatValue(62.4, { unit: '%', locale: 'en-US' }).text, '62 %');
     });
 
     it('formats with a unit and a placeholder for an unknown value', () => {
@@ -814,6 +832,188 @@ describe('examples', () => {
     });
 });
 
+describe('templates', () => {
+    it('every one is valid, unbound, and drawn with icons that exist', () => {
+        for (const info of PRESETS) {
+            const config = buildPreset(info.id, key => key);
+            const normalized = normalizeConfig(config);
+            assert.equal(normalized.nodes.length, config.nodes.length, `${info.id}: a node was dropped`);
+            assert.equal(normalized.edges.length, config.edges.length, `${info.id}: an edge was dropped`);
+
+            const ids = config.nodes.map(node => node.id);
+            assert.equal(new Set(ids).size, ids.length, `${info.id}: two nodes share an id`);
+            for (const edge of config.edges) {
+                assert.ok(ids.includes(edge.from), `${info.id}: ${edge.id} starts nowhere`);
+                assert.ok(ids.includes(edge.to), `${info.id}: ${edge.id} ends nowhere`);
+            }
+            for (const node of config.nodes) {
+                if (node.icon) {
+                    assert.ok(BUILTIN_ICONS[node.icon], `${info.id}: unknown icon "${node.icon}"`);
+                }
+            }
+
+            // A template ships unbound, and says what flows through it
+            assert.deepEqual(collectOids(config), [], `${info.id}: brings somebody else's state ids`);
+            assert.equal(
+                config.defaults?.medium ?? 'energy',
+                info.medium,
+                `${info.id}: the list and the document disagree about the medium`,
+            );
+            if (info.medium !== 'energy') {
+                assert.equal(config.defaults?.unit, MEDIA[info.medium].unit, `${info.id}: wrong unit`);
+            }
+
+            const runtime = computeRuntime(config, () => null, LIGHT_THEME);
+            assert.equal(runtime.edges.length, config.edges.length, `${info.id}: an edge points nowhere`);
+            assert.ok(
+                runtime.nodes.every(node => !node.valueText.text.includes('NaN')),
+                `${info.id}: draws NaN`,
+            );
+        }
+    });
+
+    it('draws a junction with a symbol as a part of the line, not as a dot', () => {
+        const junction: FlowNode = { id: 'j', kind: 'bus', x: 100, y: 100, value: { oid: '' } };
+        assert.deepEqual(nodeRect(junction), { x: 91, y: 91, w: 18, h: 18 }, 'a bare junction is a dot');
+        const valve = nodeRect({ ...junction, icon: 'valve' });
+        assert.ok(valve.w > 40 && valve.w === valve.h, `a valve needs a body, got ${valve.w}`);
+        // ... and the renderer draws that body instead of the dot
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 300, h: 200 },
+            nodes: [{ ...junction, icon: 'valve' }],
+            edges: [],
+        };
+        const markup = renderToStaticMarkup(
+            React.createElement(FlowView, {
+                runtime: computeRuntime(config, () => null, LIGHT_THEME),
+                theme: LIGHT_THEME,
+                animate: false,
+            }),
+        );
+        assert.ok(markup.includes('M4.5 10.5'), 'the valve symbol is missing');
+    });
+
+    it('falls back to the plain word when the medium has none of its own', () => {
+        // The host's translator answers with the *namespaced* key when it knows no sentence for it
+        const words: Record<string, string> = {
+            kind_source: 'Erzeuger',
+            kind_label: 'Beschriftung',
+            kind_source_water: 'Quelle',
+            palette_valve: 'Ventil',
+            insp_soc: 'Ladezustand',
+            insp_soc_water: 'Füllstand',
+        };
+        const t = (key: string): string => words[key] ?? `flow_${key}`;
+        const water = emptyConfig('water');
+
+        assert.equal(kindLabel('source', water, t), 'Quelle');
+        assert.equal(kindLabel('source', undefined, t), 'Erzeuger', 'energy has no word of its own');
+        assert.equal(kindLabel('label', water, t), 'Beschriftung');
+        assert.equal(paletteLabel({ id: 'valve', kind: 'bus', label: 'palette_valve' }, water, t), 'Ventil');
+        assert.equal(paletteLabel({ id: 'source', kind: 'source' }, water, t), 'Quelle');
+
+        // Any sentence of the designer can differ, not only the names of the kinds
+        assert.equal(mediumWord('insp_soc', water, t), 'Füllstand');
+        assert.equal(mediumWord('insp_soc', undefined, t), 'Ladezustand');
+    });
+
+    it('offers a palette that fits what flows', () => {
+        const words = {
+            en: JSON.parse(readFileSync(new URL('../packages/i18n/src/en.json', import.meta.url), 'utf8')) as Record<
+                string,
+                string
+            >,
+            de: JSON.parse(readFileSync(new URL('../packages/i18n/src/de.json', import.meta.url), 'utf8')) as Record<
+                string,
+                string
+            >,
+        };
+        for (const medium of MEDIUM_IDS) {
+            const entries = paletteOf(medium);
+            assert.ok(entries.length >= 5, `${medium}: hardly anything to place`);
+            const ids = entries.map(entry => entry.id);
+            assert.equal(new Set(ids).size, ids.length, `${medium}: two entries share an id`);
+            for (const entry of entries) {
+                if (entry.icon) {
+                    assert.ok(BUILTIN_ICONS[entry.icon], `${medium}/${entry.id}: unknown icon "${entry.icon}"`);
+                }
+                // A name of its own has to exist in both dictionaries; without one it borrows the
+                // kind's, which the designer already translates per medium
+                if (entry.label) {
+                    for (const [lang, dictionary] of Object.entries(words)) {
+                        assert.ok(dictionary[entry.label], `${lang}: no name for ${medium}/${entry.id}`);
+                    }
+                }
+            }
+            // Whatever a water installation is made of, it can still be drawn and connected
+            assert.ok(
+                entries.some(entry => entry.kind === 'source') && entries.some(entry => entry.kind === 'sink'),
+                `${medium}: nowhere for the flow to come from or go to`,
+            );
+        }
+        // The water palette is the one that differs: a valve and a pump are both nodes it flows through
+        const water = paletteOf('water');
+        assert.deepEqual(
+            water.filter(entry => entry.kind === 'bus').map(entry => entry.icon ?? ''),
+            ['watermeter', 'flowsensor', 'waterpump', 'valve', ''],
+        );
+        // An energy diagram keeps the palette it always had
+        assert.deepEqual(
+            paletteOf('energy').map(entry => entry.kind),
+            ['source', 'sink', 'storage', 'grid', 'label', 'image', 'bus'],
+        );
+        assert.ok(paletteOf('energy').every(entry => entry.icon === undefined && entry.label === undefined));
+    });
+
+    it('reads a node as the palette entry it was placed from', () => {
+        const valve: FlowNode = { id: 'v', kind: 'bus', x: 0, y: 0, icon: 'valve' };
+        assert.equal(paletteEntryOf(valve, 'water')?.id, 'valve');
+        assert.equal(paletteEntryOf({ ...valve, icon: 'waterpump' }, 'water')?.id, 'pump');
+        // A symbol the user picked makes it a junction with a picture again, which is what it is
+        assert.equal(paletteEntryOf({ ...valve, icon: 'pond' }, 'water')?.id, 'bus');
+        assert.equal(paletteEntryOf({ ...valve, kind: 'storage', icon: undefined }, 'water')?.id, 'storage');
+
+        // Turning it into a pump brings the pump's symbol with it
+        const pump = paletteOf('water').find(entry => entry.id === 'pump')!;
+        assert.deepEqual(paletteChange(valve, pump, 'water'), { kind: 'bus', icon: 'waterpump' });
+        // ... and turning it into a plain junction takes the valve's symbol away again
+        const junction = paletteOf('water').find(entry => entry.id === 'bus')!;
+        assert.deepEqual(paletteChange(valve, junction, 'water'), { kind: 'bus', icon: undefined });
+        // ... while a symbol of the user's own survives the change
+        const tank = paletteOf('water').find(entry => entry.id === 'storage')!;
+        assert.deepEqual(paletteChange({ ...valve, icon: 'pond' }, tank, 'water'), { kind: 'storage' });
+    });
+
+    it('reads a tank without a declared unit as how full it is', () => {
+        const tank = (medium: 'water' | 'energy'): string => {
+            const config: FlowConfig = {
+                v: 1,
+                canvas: { w: 300, h: 200 },
+                defaults: medium === 'water' ? { medium, unit: 'l/min' } : { unit: 'W' },
+                nodes: [{ id: 't', kind: 'storage', x: 150, y: 100, value: { oid: 'level' } }],
+                edges: [],
+            };
+            return computeRuntime(config, createValueGetter({ level: 62 }), {
+                ...LIGHT_THEME,
+                locale: 'en-US',
+            }).nodes[0].valueText.text.replace(/\u00a0/g, ' ');
+        };
+        assert.equal(tank('water'), '62 %');
+        // A battery is not a percentage: its number is the power it gives or takes
+        assert.equal(tank('energy'), '62 W');
+    });
+
+    it('offers one for every medium', () => {
+        for (const medium of MEDIUM_IDS) {
+            assert.ok(
+                PRESETS.some(info => info.medium === medium),
+                `no template for ${medium}`,
+            );
+        }
+    });
+});
+
 describe('import from energiefluss-erweitert', () => {
     /** The layout that adapter ships as its default -- the one document of that format everybody has */
     const DEFAULT_DOC = JSON.parse(
@@ -1189,22 +1389,475 @@ describe('stored diagrams', () => {
         assert.ok('config' in nothing && nothing.config.nodes.length === 0);
     });
 
-    it('round-trips a diagram through its state value', () => {
+    it('round-trips a diagram through the native of its object', () => {
         const config = buildPreset('pv-battery-home', key => key);
-        const parsed = parseStoredDiagram(serializeDiagram(config));
+        const native = diagramNative(config);
+        assert.deepEqual(Object.keys(native), ['flow'], 'the document lives under native.flow');
+        const parsed = diagramFromNative(native);
         assert.ok(parsed);
         assert.equal(parsed.nodes.length, config.nodes.length);
         assert.equal(parsed.edges.length, config.edges.length);
     });
 
-    it('reads a state that holds nothing usable as no diagram', () => {
-        assert.equal(parseStoredDiagram(null), null);
-        assert.equal(parseStoredDiagram(undefined), null);
-        assert.equal(parseStoredDiagram(''), null);
-        assert.equal(parseStoredDiagram('not json'), null);
+    it('reads an object that holds nothing usable as no diagram', () => {
+        assert.equal(diagramFromNative(null), null);
+        assert.equal(diagramFromNative(undefined), null);
+        assert.equal(diagramFromNative({}), null, 'an object without our key is not ours');
+        assert.equal(diagramFromNative({ flow: '' }), null);
+        assert.equal(diagramFromNative({ flow: 'not a document' }), null);
         // A stored diagram that points somewhere else would be a chain; it is refused, not followed
-        assert.equal(parseStoredDiagram('{"$ref":"flow.0.diagrams.other"}'), null);
-        assert.equal(parseStoredDiagram({ $ref: 'flow.0.diagrams.other' }), null);
+        assert.equal(diagramFromNative({ flow: { $ref: 'flow.0.diagrams.other' } }), null);
+    });
+});
+
+describe('working the flow out', () => {
+    /**
+     * The installation this was built for: two tanks, each behind a valve, both on one pump, and a
+     * tap behind it. Nothing but the elements is metered -- no state on a single pipe.
+     */
+    const plant = (): FlowConfig => ({
+        v: 1,
+        canvas: { w: 900, h: 560 },
+        defaults: { medium: 'water', unit: 'l/min', hydraulics: true },
+        nodes: [
+            { id: 'rear', kind: 'storage', x: 180, y: 80, label: 'Hinten', soc: { oid: 'rear.level' } },
+            { id: 'front', kind: 'storage', x: 410, y: 80, label: 'Vorne', soc: { oid: 'front.level' } },
+            { id: 'v1', kind: 'bus', icon: 'valve', x: 210, y: 190, value: { oid: 'v1' } },
+            { id: 'v2', kind: 'bus', icon: 'valve', x: 380, y: 190, value: { oid: 'v2' } },
+            { id: 'pump', kind: 'bus', icon: 'waterpump', x: 300, y: 290, value: { oid: 'pump' } },
+            { id: 'tap', kind: 'sink', icon: 'tap', x: 300, y: 430 },
+        ],
+        edges: [
+            { id: 'rear-v1', from: 'rear', to: 'v1', value: { oid: '' } },
+            { id: 'front-v2', from: 'front', to: 'v2', value: { oid: '' } },
+            { id: 'v1-pump', from: 'v1', to: 'pump', value: { oid: '' } },
+            { id: 'v2-pump', from: 'v2', to: 'pump', value: { oid: '' } },
+            { id: 'pump-tap', from: 'pump', to: 'tap', value: { oid: '' } },
+        ],
+    });
+
+    const flowing = (values: Record<string, number>, config = plant()): string[] => {
+        const runtime = computeRuntime(config, createValueGetter(values), LIGHT_THEME);
+        return runtime.edges
+            .filter(edge => edge.active)
+            .map(edge => edge.edge.id)
+            .sort();
+    };
+
+    it('lets nothing flow while the valves are shut and the pump stands', () => {
+        assert.deepEqual(flowing({ 'rear.level': 73, 'front.level': 0, v1: 0, v2: 0, pump: 0 }), []);
+    });
+
+    it('opens exactly the branch whose valve is open and whose tank has something', () => {
+        // The rear tank is full, its valve open, the pump runs: that strand carries, the other does not
+        assert.deepEqual(flowing({ 'rear.level': 73, 'front.level': 0, v1: 1, v2: 0, pump: 0.4 }), [
+            'pump-tap',
+            'rear-v1',
+            'v1-pump',
+        ]);
+        // Both valves open, but the front tank is empty: it still gives nothing
+        assert.deepEqual(flowing({ 'rear.level': 73, 'front.level': 0, v1: 1, v2: 1, pump: 0.4 }), [
+            'pump-tap',
+            'rear-v1',
+            'v1-pump',
+        ]);
+        // ... and with something in it, both feed the pump
+        assert.deepEqual(flowing({ 'rear.level': 73, 'front.level': 20, v1: 1, v2: 1, pump: 0.4 }), [
+            'front-v2',
+            'pump-tap',
+            'rear-v1',
+            'v1-pump',
+            'v2-pump',
+        ]);
+    });
+
+    it('stops everything when the pump stands, even with the valves open', () => {
+        const values = { 'rear.level': 73, 'front.level': 20, v1: 1, v2: 1, pump: 0 };
+        assert.deepEqual(flowing(values), []);
+        // And it says so: a line the model worked out as still carries zero, not a placeholder --
+        // the same answer a dead pipe in a ring gives
+        const runtime = computeRuntime(plant(), createValueGetter(values), { ...LIGHT_THEME, locale: 'en-US' });
+        const line = runtime.edges.find(edge => edge.edge.id === 'pump-tap')!;
+        assert.equal(line.value, 0);
+        assert.equal(line.valueText.text.replace(/\u00a0/g, ' '), '0.00 l/min');
+    });
+
+    it('takes the amount from what measures it, and flows without one', () => {
+        const values = { 'rear.level': 73, 'front.level': 0, v1: 1, v2: 0, pump: 0.4 };
+        const runtime = computeRuntime(plant(), createValueGetter(values), { ...LIGHT_THEME, locale: 'en-US' });
+        const line = runtime.edges.find(edge => edge.edge.id === 'pump-tap')!;
+        // A pump that reports amperes says "it runs", not "how much": the line flows without a number
+        assert.equal(line.active, true);
+        assert.equal(line.value, null);
+        assert.equal(line.valueText.text, '--');
+        // ... and it still moves, at the reference speed: without a number there is none to derive,
+        // and a line that is alive but stands still is the one thing this must not look like
+        assert.equal(line.dotDuration, DEFAULT_ANIMATION.refDuration);
+
+        // With a flow sensor in the strand every line of it carries what the sensor reads
+        const metered = plant();
+        metered.nodes.push({ id: 'fs', kind: 'bus', icon: 'flowsensor', x: 300, y: 360, value: { oid: 'fs' } });
+        metered.edges = [
+            ...metered.edges.filter(edge => edge.id !== 'pump-tap'),
+            { id: 'pump-fs', from: 'pump', to: 'fs', value: { oid: '' } },
+            { id: 'fs-tap', from: 'fs', to: 'tap', value: { oid: '' } },
+        ];
+        const withSensor = computeRuntime(metered, createValueGetter({ ...values, fs: 8 }), {
+            ...LIGHT_THEME,
+            locale: 'en-US',
+        });
+        const measured = withSensor.edges.find(edge => edge.edge.id === 'fs-tap')!;
+        assert.equal(measured.value, 8);
+        assert.equal(measured.valueText.text.replace(/\u00a0/g, ' '), '8.00 l/min');
+        // ... including the one before the sensor: a chain carries the same everywhere
+        assert.equal(withSensor.edges.find(edge => edge.edge.id === 'rear-v1')?.value, 8);
+    });
+
+    it('leaves a line that has a reading of its own alone, and every other diagram untouched', () => {
+        const metered = plant();
+        metered.edges = metered.edges.map(edge => (edge.id === 'pump-tap' ? { ...edge, value: { oid: 'own' } } : edge));
+        const runtime = computeRuntime(
+            metered,
+            createValueGetter({ 'rear.level': 73, 'front.level': 0, v1: 1, v2: 0, pump: 0.4, own: 3 }),
+            LIGHT_THEME,
+        );
+        assert.equal(runtime.edges.find(edge => edge.edge.id === 'pump-tap')?.value, 3);
+
+        // Without the switch nothing is worked out: every diagram written so far draws as it did
+        const off = plant();
+        off.defaults = { ...off.defaults, hydraulics: false };
+        assert.deepEqual(flowing({ 'rear.level': 73, 'front.level': 0, v1: 1, v2: 0, pump: 0.4 }, off), []);
+    });
+
+    it('divides what runs at a branch', () => {
+        /** One tank, a pump, and two taps behind it */
+        const forked = (a?: string, b?: string): FlowConfig => ({
+            v: 1,
+            canvas: { w: 900, h: 560 },
+            defaults: { medium: 'water', unit: 'l/min', hydraulics: true },
+            nodes: [
+                { id: 'tank', kind: 'storage', x: 300, y: 80, soc: { oid: 'level' } },
+                { id: 'pump', kind: 'bus', icon: 'waterpump', x: 300, y: 200, value: { oid: 'pump' } },
+                { id: 'bath', kind: 'sink', x: 180, y: 380, value: a ? { oid: a } : undefined },
+                { id: 'garden', kind: 'sink', x: 420, y: 380, value: b ? { oid: b } : undefined },
+            ],
+            edges: [
+                { id: 'tank-pump', from: 'tank', to: 'pump', value: { oid: '' } },
+                { id: 'pump-bath', from: 'pump', to: 'bath', value: { oid: '' } },
+                { id: 'pump-garden', from: 'pump', to: 'garden', value: { oid: '' } },
+            ],
+        });
+
+        const amounts = (config: FlowConfig, values: Record<string, number>): Record<string, number | null> => {
+            const runtime = computeRuntime(config, createValueGetter(values), LIGHT_THEME);
+            return Object.fromEntries(runtime.edges.map(edge => [edge.edge.id, edge.value]));
+        };
+
+        // Every taker reads its own use: the branches carry those, the trunk their sum
+        assert.deepEqual(amounts(forked('bath', 'garden'), { level: 70, pump: 1, bath: 3, garden: 5 }), {
+            'tank-pump': 8,
+            'pump-bath': 3,
+            'pump-garden': 5,
+        });
+
+        // Nobody reads anything, but a flow sensor sits in the trunk: equal parts behind it
+        const metered = forked();
+        metered.nodes.push({ id: 'fs', kind: 'bus', icon: 'flowsensor', x: 300, y: 140, value: { oid: 'fs' } });
+        metered.edges = [
+            { id: 'tank-fs', from: 'tank', to: 'fs', value: { oid: '' } },
+            { id: 'fs-pump', from: 'fs', to: 'pump', value: { oid: '' } },
+            ...metered.edges.filter(edge => edge.id !== 'tank-pump'),
+        ];
+        assert.deepEqual(amounts(metered, { level: 70, pump: 1, fs: 8 }), {
+            'tank-fs': 8,
+            'fs-pump': 8,
+            'pump-bath': 4,
+            'pump-garden': 4,
+        });
+
+        // A sensor in one branch measures that branch, and the rest follows from it
+        const branchMetered = forked();
+        branchMetered.nodes.push({ id: 'fs', kind: 'bus', icon: 'flowsensor', x: 180, y: 300, value: { oid: 'fs' } });
+        branchMetered.edges = [
+            ...branchMetered.edges.filter(edge => edge.id !== 'pump-bath'),
+            { id: 'pump-fs', from: 'pump', to: 'fs', value: { oid: '' } },
+            { id: 'fs-bath', from: 'fs', to: 'bath', value: { oid: '' } },
+        ];
+        assert.deepEqual(amounts(branchMetered, { level: 70, pump: 1, fs: 3 }), {
+            'tank-pump': 6,
+            'pump-garden': 3,
+            'pump-fs': 3,
+            'fs-bath': 3,
+        });
+    });
+
+    it('divides what two tanks send to one tap', () => {
+        const config = plant();
+        // The tap reads its own use; both tanks are open and full
+        config.nodes = config.nodes.map(node => (node.id === 'tap' ? { ...node, value: { oid: 'tap' } } : node));
+        const runtime = computeRuntime(
+            config,
+            createValueGetter({ 'rear.level': 73, 'front.level': 40, v1: 1, v2: 1, pump: 0.4, tap: 8 }),
+            LIGHT_THEME,
+        );
+        const amount = (id: string): number | null => runtime.edges.find(edge => edge.edge.id === id)?.value ?? null;
+        // Half through each tank's strand, the whole of it after the pump
+        assert.equal(amount('rear-v1'), 4);
+        assert.equal(amount('v1-pump'), 4);
+        assert.equal(amount('front-v2'), 4);
+        assert.equal(amount('v2-pump'), 4);
+        assert.equal(amount('pump-tap'), 8);
+    });
+
+    it('gives a half open valve half as much as the open one beside it', () => {
+        const config = plant();
+        // The valves report a percentage, as a valve with a position does
+        config.nodes = config.nodes.map(node =>
+            node.id === 'v1' || node.id === 'v2'
+                ? { ...node, unit: '%' }
+                : node.id === 'tap'
+                  ? { ...node, value: { oid: 'tap' } }
+                  : node,
+        );
+        const runtime = computeRuntime(
+            config,
+            createValueGetter({ 'rear.level': 73, 'front.level': 40, v1: 50, v2: 100, pump: 0.4, tap: 9 }),
+            LIGHT_THEME,
+        );
+        const amount = (id: string): number | null => runtime.edges.find(edge => edge.edge.id === id)?.value ?? null;
+        // Half a turn against a whole one: one part against two
+        assert.equal(amount('rear-v1'), 3);
+        assert.equal(amount('v1-pump'), 3);
+        assert.equal(amount('front-v2'), 6);
+        assert.equal(amount('v2-pump'), 6);
+        assert.equal(amount('pump-tap'), 9);
+    });
+
+    it('divides between two consumers by how far their valves are open', () => {
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 900, h: 560 },
+            defaults: { medium: 'water', unit: 'l/min', hydraulics: true },
+            nodes: [
+                { id: 'mains', kind: 'grid', x: 300, y: 60 },
+                { id: 'fs', kind: 'bus', icon: 'flowsensor', x: 300, y: 160, value: { oid: 'fs' } },
+                { id: 'vb', kind: 'bus', icon: 'valve', x: 180, y: 280, value: { oid: 'vb' }, unit: '%' },
+                { id: 'vg', kind: 'bus', icon: 'valve', x: 420, y: 280, value: { oid: 'vg' }, unit: '%' },
+                { id: 'bath', kind: 'sink', x: 180, y: 420 },
+                { id: 'garden', kind: 'sink', x: 420, y: 420 },
+            ],
+            edges: [
+                { id: 'mains-fs', from: 'mains', to: 'fs', value: { oid: '' } },
+                { id: 'fs-vb', from: 'fs', to: 'vb', value: { oid: '' } },
+                { id: 'fs-vg', from: 'fs', to: 'vg', value: { oid: '' } },
+                { id: 'vb-bath', from: 'vb', to: 'bath', value: { oid: '' } },
+                { id: 'vg-garden', from: 'vg', to: 'garden', value: { oid: '' } },
+            ],
+        };
+        const runtime = computeRuntime(config, createValueGetter({ fs: 9, vb: 50, vg: 100 }), LIGHT_THEME);
+        const amount = (id: string): number | null => runtime.edges.find(edge => edge.edge.id === id)?.value ?? null;
+        assert.equal(amount('mains-fs'), 9);
+        assert.equal(amount('vb-bath'), 3);
+        assert.equal(amount('vg-garden'), 6);
+        // Shut is shut, and then the other one takes everything the sensor reads
+        const closed = computeRuntime(config, createValueGetter({ fs: 9, vb: 0, vg: 100 }), LIGHT_THEME);
+        const shut = (id: string): number | null => closed.edges.find(edge => edge.edge.id === id)?.value ?? null;
+        assert.equal(closed.edges.find(edge => edge.edge.id === 'vb-bath')?.active, false);
+        assert.equal(shut('vg-garden'), 9);
+    });
+
+    it('sends half of a ring each way, and lets the two halves of a ring with two givers meet', () => {
+        const amounts = (config: FlowConfig, values: Record<string, number>): Record<string, number | null> => {
+            const runtime = computeRuntime(config, createValueGetter(values), LIGHT_THEME);
+            return Object.fromEntries(runtime.edges.map(edge => [edge.edge.id, edge.value]));
+        };
+
+        // A ring off one house connection, with the tap on the far side: both ways carry half
+        const ring: FlowConfig = {
+            v: 1,
+            canvas: { w: 900, h: 560 },
+            defaults: { medium: 'water', unit: 'l/min', hydraulics: true },
+            nodes: [
+                { id: 'mains', kind: 'grid', x: 300, y: 60 },
+                { id: 'west', kind: 'bus', x: 120, y: 260 },
+                { id: 'east', kind: 'bus', x: 480, y: 260 },
+                { id: 'tap', kind: 'sink', x: 300, y: 460, value: { oid: 'tap' } },
+            ],
+            edges: [
+                { id: 'mains-west', from: 'mains', to: 'west', value: { oid: '' } },
+                { id: 'west-tap', from: 'west', to: 'tap', value: { oid: '' } },
+                { id: 'mains-east', from: 'mains', to: 'east', value: { oid: '' } },
+                { id: 'east-tap', from: 'east', to: 'tap', value: { oid: '' } },
+            ],
+        };
+        assert.deepEqual(amounts(ring, { tap: 10 }), {
+            'mains-west': 5,
+            'west-tap': 5,
+            'mains-east': 5,
+            'east-tap': 5,
+        });
+
+        // Two house connections on one ring, the tap between them: each feeds its own side, and the
+        // pipe on the far side carries nothing -- that is where the two flows meet
+        const twoEnds: FlowConfig = {
+            v: 1,
+            canvas: { w: 900, h: 560 },
+            defaults: { medium: 'water', unit: 'l/min', hydraulics: true },
+            nodes: [
+                { id: 'westMains', kind: 'grid', x: 120, y: 120 },
+                { id: 'eastMains', kind: 'grid', x: 480, y: 120 },
+                { id: 'far', kind: 'bus', x: 300, y: 60 },
+                { id: 'tap', kind: 'sink', x: 300, y: 420, value: { oid: 'tap' } },
+            ],
+            edges: [
+                { id: 'west-tap', from: 'westMains', to: 'tap', value: { oid: '' } },
+                { id: 'east-tap', from: 'eastMains', to: 'tap', value: { oid: '' } },
+                { id: 'west-far', from: 'westMains', to: 'far', value: { oid: '' } },
+                { id: 'far-east', from: 'far', to: 'eastMains', value: { oid: '' } },
+            ],
+        };
+        const flows = amounts(twoEnds, { tap: 12 });
+        assert.equal(flows['west-tap'], 6);
+        assert.equal(flows['east-tap'], 6);
+        // What cancels out carries nothing, and says so: zero rather than a placeholder
+        assert.equal(flows['west-far'], 0);
+        assert.equal(flows['far-east'], 0);
+        const runtime = computeRuntime(twoEnds, createValueGetter({ tap: 12 }), LIGHT_THEME);
+        assert.equal(runtime.edges.find(edge => edge.edge.id === 'west-far')?.active, false);
+    });
+
+    it('reads the role of an element from what it is, and lets it be overruled', () => {
+        assert.equal(defaultRole({ id: 'a', kind: 'grid', x: 0, y: 0 }), 'supply');
+        assert.equal(defaultRole({ id: 'a', kind: 'storage', x: 0, y: 0 }), 'store');
+        assert.equal(defaultRole({ id: 'a', kind: 'sink', x: 0, y: 0 }), 'demand');
+        assert.equal(defaultRole({ id: 'a', kind: 'bus', x: 0, y: 0 }), 'pass');
+        assert.equal(defaultRole({ id: 'a', kind: 'bus', icon: 'valve', x: 0, y: 0 }), 'gate');
+        assert.equal(defaultRole({ id: 'a', kind: 'bus', icon: 'waterpump', x: 0, y: 0 }), 'driver');
+        assert.equal(defaultRole({ id: 'a', kind: 'bus', icon: 'flowsensor', x: 0, y: 0 }), 'meter');
+        // A node may say what it is, whatever it looks like
+        assert.equal(defaultRole({ id: 'a', kind: 'bus', icon: 'valve', hydraulic: 'pass', x: 0, y: 0 }), 'pass');
+    });
+});
+
+describe('caption templates', () => {
+    const raw: Record<string, unknown> = {
+        'userdata.0.hallo': 'Welt',
+        'meter.0.total': 4711.5,
+        'switch.0.on': true,
+    };
+    const times: Record<string, { ts?: number; lc?: number }> = {
+        'userdata.0.hallo': { ts: 1_700_000_000_000, lc: 1_699_999_000_000 },
+    };
+    const context = {
+        own: 'meter.0.total',
+        raw: (oid: string) => raw[oid],
+        times: (oid: string) => times[oid],
+        units: (oid: string) => (oid === 'meter.0.total' ? 'kWh' : undefined),
+        locale: 'en-US',
+        now: 1_700_000_600_000,
+    };
+
+    it('reads its own state without naming it, and any other one by name', () => {
+        assert.equal(renderTemplate('{{ val }} {{ unit }}', context), '4,711.5 kWh');
+        assert.equal(renderTemplate('Gruss: {{ userdata.0.hallo.val }}', context), 'Gruss: Welt');
+        // Without a field the whole placeholder is a state, and what is wanted is its value
+        assert.equal(renderTemplate('{{ userdata.0.hallo }}', context), 'Welt');
+        assert.equal(renderTemplate('{{switch.0.on}}', context), 'true');
+    });
+
+    it('shows a time as how long ago it was, and as a date when asked', () => {
+        assert.equal(renderTemplate('{{ userdata.0.hallo.ts }}', context), '10 minutes ago');
+        assert.equal(renderTemplate('{{ userdata.0.hallo.lc }}', context), '27 minutes ago');
+        // A short date and time, not "10 minutes ago"
+        const absolute = renderTemplate('{{ userdata.0.hallo.ts_abs }}', context);
+        assert.match(absolute, /\d+\/\d+\/\d+/);
+        assert.ok(absolute.includes(':'));
+        // A state nobody has written leaves the text around it alone
+        assert.equal(renderTemplate('[{{ meter.0.total.ts }}]', context), '[]');
+        assert.equal(renderTemplate('[{{ nothing.0.here.val }}]', context), '[]');
+    });
+
+    it('computes, when the placeholder is a calculation', () => {
+        assert.equal(renderTemplate('{{ val * 2 }}', context), '9,423');
+        assert.equal(renderTemplate('{{ val + 100 }}', context), '4,811.5');
+        // A state of its own, named in the middle of the calculation
+        const withOffset = { ...context, raw: (oid: string) => (oid === 'meter.0.offset' ? 10 : raw[oid]) };
+        assert.equal(renderTemplate('{{ val + meter.0.offset.val * 10 }}', withOffset), '4,811.5');
+        // An id may start with a digit, as `0_userdata` does
+        const userdata = { ...context, raw: (oid: string) => (oid === '0_userdata.0.x' ? 7 : undefined) };
+        assert.equal(renderTemplate('{{ 0_userdata.0.x.val * 3 }}', userdata), '21');
+        // A minus in an id is not a subtraction: without spaces it stays one name
+        assert.equal(renderTemplate('{{ hm-rpc.0.thing.val }}', { raw: () => 5 }), '5');
+        // A state nobody has written makes the whole calculation empty, as it does in a value source
+        assert.equal(renderTemplate('[{{ nothing.0.here.val + 1 }}]', context), '[]');
+    });
+
+    it('says which states a caption reads, so they get subscribed', () => {
+        assert.deepEqual(templateOids('{{ val }} of {{ userdata.0.hallo.val }}', 'meter.0.total'), [
+            'meter.0.total',
+            'userdata.0.hallo',
+        ]);
+        // Every state of a calculation as well, or the widget would not subscribe to it
+        assert.deepEqual(templateOids('{{ val + 0_userdata.0.x.val * 10 }}', 'meter.0.total'), [
+            'meter.0.total',
+            '0_userdata.0.x',
+        ]);
+        assert.deepEqual(templateOids('nothing here'), []);
+        assert.equal(hasTemplate('nothing here'), false);
+        assert.equal(hasTemplate('{{ val }}'), true);
+
+        // ... and the widget subscribes to them with everything else the document reads
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 300, h: 200 },
+            nodes: [
+                {
+                    id: 'caption',
+                    kind: 'label',
+                    x: 100,
+                    y: 100,
+                    text: '{{ val }} at {{ userdata.0.hallo.ts }}',
+                    value: { oid: 'meter.0.total' },
+                },
+            ],
+            edges: [],
+        };
+        assert.deepEqual(collectOids(config).sort(), ['meter.0.total', 'userdata.0.hallo']);
+    });
+
+    it('draws the filled-in caption, not the template', () => {
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 300, h: 200 },
+            nodes: [
+                {
+                    id: 'caption',
+                    kind: 'label',
+                    x: 100,
+                    y: 100,
+                    text: 'Zaehler: {{ val }} {{ unit }}',
+                    value: { oid: 'meter.0.total' },
+                },
+            ],
+            edges: [],
+        };
+        const runtime = computeRuntime(
+            config,
+            createValueGetter({ 'meter.0.total': 4711.5 }),
+            {
+                ...LIGHT_THEME,
+                locale: 'en-US',
+            },
+            { raw: (oid: string) => raw[oid], units: (oid: string) => (oid === 'meter.0.total' ? 'kWh' : undefined) },
+        );
+        assert.equal(runtime.nodes[0].text, 'Zaehler: 4,711.5 kWh');
+        // A caption without placeholders is drawn as it was written
+        const plain = computeRuntime(
+            { ...config, nodes: [{ ...config.nodes[0], text: 'Nur Text' }] },
+            () => null,
+            LIGHT_THEME,
+        );
+        assert.equal(plain.nodes[0].text, 'Nur Text');
     });
 });
 
@@ -1779,6 +2432,75 @@ describe('rules, status texts and stale values', () => {
         assert.equal(plain.nodes[0].color, 'red');
     });
 
+    it('shows the word for a switch without being told to, and nothing at all when asked', () => {
+        const raw = (values: Record<string, unknown>) => (oid: string) => values[oid];
+        // No `display`, only the two words: a valve says "offen", not "1,00 %"
+        const valve = one({ textMap: switchTextMap('offen', 'zu'), unit: '%' });
+        const open = computeRuntime(valve, createValueGetter({ v: 1 }), LIGHT_THEME, { raw: raw({ v: true }) });
+        assert.equal(open.nodes[0].valueText.text, 'offen');
+        const shut = computeRuntime(valve, createValueGetter({ v: 0 }), LIGHT_THEME, { raw: raw({ v: 0 }) });
+        assert.equal(shut.nodes[0].valueText.text, 'zu');
+        // A value the map does not name is a number again, with its unit
+        const other = computeRuntime(valve, createValueGetter({ v: 50 }), LIGHT_THEME, { raw: raw({ v: 50 }) });
+        assert.equal(other.nodes[0].valueText.text.replace(/\u00a0/g, ' '), '50 %');
+
+        // "No value": the node is its symbol and its label -- but the number is still read, because
+        // rules, the fill level and the flow all use it
+        const bare = one({
+            kind: 'sink',
+            display: 'none',
+            levelMax: 100,
+            rules: [{ op: '>', value: 40, color: 'red' }],
+        });
+        const runtime = computeRuntime(bare, createValueGetter({ v: 60 }), LIGHT_THEME);
+        assert.equal(runtime.nodes[0].valueText.text, '');
+        assert.equal(runtime.nodes[0].value, 60);
+        assert.equal(runtime.nodes[0].level, 60);
+        assert.equal(runtime.nodes[0].color, 'red');
+        // ... and the renderer draws no number for it
+        const drawn = renderToStaticMarkup(
+            React.createElement(FlowView, { runtime, theme: LIGHT_THEME, animate: false }),
+        );
+        assert.equal(/<text[^>]*>[^<]*60[^<]*<\/text>/.test(drawn), false, 'no text of the value is drawn');
+    });
+
+    it('gives a connection the same words, without taking the number out of service', () => {
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 400, h: 200 },
+            defaults: { medium: 'water', unit: 'l/min' },
+            nodes: [
+                { id: 'a', kind: 'grid', x: 80, y: 100 },
+                { id: 'b', kind: 'sink', x: 320, y: 100 },
+            ],
+            edges: [
+                {
+                    id: 'e',
+                    from: 'a',
+                    to: 'b',
+                    value: { oid: 'e' },
+                    showValue: true,
+                    textMap: switchTextMap('läuft', 'aus'),
+                },
+            ],
+        };
+        const raw = (values: Record<string, unknown>) => (oid: string) => values[oid];
+        const running = computeRuntime(config, createValueGetter({ e: 1 }), LIGHT_THEME, { raw: raw({ e: true }) });
+        assert.equal(running.edges[0].valueText.text, 'läuft');
+        // The number keeps its work: the line flows, the way it was drawn
+        assert.equal(running.edges[0].active, true);
+        assert.equal(running.edges[0].direction, 1);
+        assert.ok(running.edges[0].dotDuration > 0);
+
+        const off = computeRuntime(config, createValueGetter({ e: 0 }), LIGHT_THEME, { raw: raw({ e: false }) });
+        assert.equal(off.edges[0].valueText.text, 'aus');
+        assert.equal(off.edges[0].active, false);
+
+        // A value the map does not name is the amount again, with its unit
+        const other = computeRuntime(config, createValueGetter({ e: 7 }), LIGHT_THEME, { raw: raw({ e: 7 }) });
+        assert.equal(other.edges[0].valueText.text.replace(/\u00a0/g, ' '), '7,00 l/min');
+    });
+
     it('dims a value that was not updated for too long', () => {
         const now = Date.UTC(2026, 8, 22, 12, 0, 0);
         const config: FlowConfig = { ...one({}), defaults: { staleAfter: 10 } };
@@ -1852,6 +2574,47 @@ describe('key figures and energy of today', () => {
         // Production 3000 (not 6000), grid 1000 -> 75 %
         assert.equal(runtime.nodeById.aut.value, 75);
         assert.equal(runtime.nodeById.aut.valueText.text.replace(/\u00a0/g, ' '), '75 %');
+    });
+
+    it('shows an extra value that is a switch as a word, and everything else as a number', () => {
+        const config: FlowConfig = {
+            v: 1,
+            canvas: { w: 300, h: 200 },
+            defaults: { medium: 'water', unit: 'l/min' },
+            nodes: [
+                {
+                    id: 'tap',
+                    kind: 'sink',
+                    x: 100,
+                    y: 100,
+                    value: { oid: 'tap' },
+                    badges: [
+                        { src: { oid: 'valve' }, label: 'Ventil', textMap: switchTextMap('offen', 'zu') },
+                        { src: { oid: 'pressure' }, unit: 'bar' },
+                    ],
+                },
+            ],
+            edges: [],
+        };
+        const words = (values: Record<string, unknown>): string[] =>
+            computeRuntime(config, createValueGetter(values as Record<string, number>), LIGHT_THEME, {
+                raw: oid => values[oid],
+            }).nodes[0].badges.map(badge => badge.text.replace(/\u00a0/g, ' '));
+
+        // A boolean reaches the widget as true or false, a switch of an older adapter as 1 or 0
+        assert.deepEqual(words({ tap: 8, valve: true, pressure: 3.2 }), ['offen', '3,20 bar']);
+        assert.deepEqual(words({ tap: 8, valve: 0, pressure: 3.2 }), ['zu', '3,20 bar']);
+        // A value the map does not name stays a number: half a map must not swallow anything
+        assert.deepEqual(words({ tap: 8, valve: 7, pressure: 3.2 }), ['7,00 l/min', '3,20 bar']);
+
+        // The two words are written and taken back one at a time, and the last one removed leaves nothing
+        const map = switchTextMap('offen', 'zu');
+        assert.equal(switchText(map, true), 'offen');
+        assert.equal(switchText(map, false), 'zu');
+        assert.equal(switchText(withSwitchText(map, true, undefined), true), '');
+        assert.equal(switchText(withSwitchText(map, true, 'auf'), true), 'auf');
+        assert.equal(withSwitchText(withSwitchText(map, true, ''), false, ''), undefined);
+        assert.equal(switchText(undefined, true), '');
     });
 
     it('integrates today once, and shows it in kWh under the value', async () => {
@@ -1955,6 +2718,43 @@ describe('what flows', () => {
         assert.equal(amountUnit(''), '');
     });
 
+    it('takes "nothing is flowing" from the medium, not from one watt', () => {
+        const of = (medium: string | undefined, value: number): boolean => {
+            const config: FlowConfig = {
+                v: 1,
+                canvas: { w: 300, h: 200 },
+                defaults: medium ? { medium: medium as 'gas', unit: MEDIA[medium as 'gas'].unit } : {},
+                nodes: [
+                    { id: 'a', kind: 'grid', x: 60, y: 100 },
+                    { id: 'b', kind: 'sink', x: 240, y: 100 },
+                ],
+                edges: [{ id: 'a-b', from: 'a', to: 'b', value: { oid: 'v' }, mode: 'positive' }],
+            };
+            return computeRuntime(config, createValueGetter({ v: value }), LIGHT_THEME).edges[0].active;
+        };
+        // A stove on the smallest flame: nothing in watts, everything in cubic metres an hour
+        assert.equal(of('gas', 0.4), true);
+        assert.equal(of(undefined, 0.4), false, '0.4 W is standby');
+        assert.equal(of('gas', 0.01), false, 'and a gas meter creeps, too');
+        assert.equal(of('water', 0.5), true);
+        assert.equal(of('water', 0.05), false);
+        // The line's own number still wins over the medium's
+        assert.equal(edgeThreshold({ id: 'e', from: 'a', to: 'b', value: { oid: 'v' }, threshold: 7 }), 7);
+    });
+
+    it('starts a new diagram in the medium it was asked for', () => {
+        // Nothing chosen: the document stays as empty as it has always been
+        assert.deepEqual(emptyConfig(), { v: 1, canvas: { ...DEFAULT_CANVAS }, nodes: [], edges: [] });
+        assert.equal(emptyConfig('energy').defaults, undefined, 'energy is the absence of a medium');
+
+        const water = emptyConfig('water');
+        assert.deepEqual(water.defaults, { medium: 'water', unit: 'l/min', animation: { refPower: 12 } });
+        assert.deepEqual(water.nodes, []);
+        // ... and the first node it gets is drawn as that medium draws it
+        assert.equal(defaultIcon('storage', water), 'cistern');
+        assert.deepEqual(mediumDefaults('energy'), { unit: 'W' });
+    });
+
     it('presets the unit, the dot speed and the icons of a medium', () => {
         assert.equal(mediumOf(undefined).id, 'energy');
         assert.equal(mediumOf({ ...buildPreset('pv-home', key => key), defaults: {} }).id, 'energy');
@@ -2028,19 +2828,61 @@ describe('assistant', () => {
     });
 
     it('recognises power and charge states by unit and role', () => {
-        assert.equal(isPowerState({ unit: 'W', type: 'number' }), true);
-        assert.equal(isPowerState({ unit: 'kW' }), true);
-        assert.equal(isPowerState({ role: 'value.power.consumption' }), true);
-        assert.equal(isPowerState({ unit: 'W', type: 'string' }), false);
-        assert.equal(isPowerState({ unit: 'kWh' }), false, 'energy is not power');
+        assert.equal(isFlowState({ unit: 'W', type: 'number' }), true);
+        assert.equal(isFlowState({ unit: 'kW' }), true);
+        assert.equal(isFlowState({ role: 'value.power.consumption' }), true);
+        assert.equal(isFlowState({ unit: 'W', type: 'string' }), false);
+        assert.equal(isFlowState({ unit: 'kWh' }), false, 'energy is not power');
         // ioBroker's power role is used for energy meters too; the unit decides
-        assert.equal(isPowerState({ unit: 'Wh', role: 'value.power.consumption' }), false);
-        assert.equal(isPowerState({ role: 'value.power.consumption' }), true);
+        assert.equal(isFlowState({ unit: 'Wh', role: 'value.power.consumption' }), false);
+        assert.equal(isFlowState({ role: 'value.power.consumption' }), true);
         assert.equal(isSocState('bms.0.soc', '', { unit: '%' }), true);
         assert.equal(isSocState('x.0.humidity', 'Feuchte', { unit: '%' }), false);
         assert.equal(isSocState('x.0.level', '', { role: 'value.battery' }), true);
         assert.equal(objectName({ en: 'Grid', de: 'Netz' }, 'de'), 'Netz');
         assert.equal(objectName('Plain'), 'Plain');
+    });
+
+    it('looks for the units and the words of the diagram it is building', () => {
+        // A water meter reports litres per minute, in whichever way its adapter spells it
+        assert.equal(isFlowState({ unit: 'l/min' }, 'water'), true);
+        assert.equal(isFlowState({ unit: 'm\u00B3/h' }, 'water'), true);
+        assert.equal(isFlowState({ unit: 'm3 / h' }, 'gas'), true);
+        assert.equal(isFlowState({ unit: 'W' }, 'water'), false, 'watts are not a water flow');
+        assert.equal(isFlowState({ unit: 'l/min' }, 'energy'), false);
+        // Without a unit only energy may be guessed: ioBroker has a role for power and for nothing else
+        assert.equal(isFlowState({ role: 'value.power' }, 'water'), false);
+
+        // ... and the words: a cistern is a storage, the water meter the "grid"
+        assert.equal(guessDeviceKind('mqtt.0.zisterne.fuellstand', 'Zisterne', 'water'), 'storage');
+        assert.equal(guessDeviceKind('x.0.wasserzaehler.flow', 'Wasserz\u00e4hler', 'water'), 'grid');
+        assert.equal(guessDeviceKind('x.0.garten.bewaesserung', 'Bew\u00e4sserung', 'water'), 'sink');
+        assert.equal(guessDeviceKind('x.0.brunnen.pumpe', 'Brunnen', 'water'), 'source');
+        assert.equal(guessDeviceKind('x.0.puffer.oben', 'Pufferspeicher', 'heat'), 'storage');
+        assert.equal(guessDeviceKind('x.0.wp.leistung', 'W\u00e4rmepumpe', 'heat'), 'source');
+        // The same id reads differently in another medium, which is the whole point
+        assert.equal(guessDeviceKind('x.0.brunnen.pumpe', 'Brunnen', 'energy'), null);
+    });
+
+    it('builds the diagram in the medium it was asked for', () => {
+        const config = buildFromDevices(
+            [
+                { oid: 'w.meter', kind: 'grid', label: 'Wasserz\u00e4hler' },
+                { oid: 'w.garden', kind: 'sink', label: 'Gartenbew\u00e4sserung' },
+            ],
+            { home: 'Haus', medium: 'water' },
+        );
+        assert.equal(config.defaults?.medium, 'water');
+        assert.equal(config.defaults?.unit, 'l/min');
+        assert.equal(config.defaults?.animation?.refPower, MEDIA.water.refValue);
+        // The consumer keeps its own icon; the rest comes from the kind in that medium
+        assert.equal(config.nodes.find(node => node.label === 'Gartenbew\u00e4sserung')?.icon, 'sprinkler');
+        const runtime = computeRuntime(config, () => null, LIGHT_THEME);
+        assert.equal(runtime.nodes.find(node => node.node.kind === 'grid')?.icon, 'pipe');
+
+        // An energy diagram keeps the shape it always had -- no medium, no reference value
+        const energy = buildFromDevices([{ oid: 'p', kind: 'source', label: 'PV' }], { home: 'Haus' });
+        assert.deepEqual(energy.defaults, { unit: 'W' });
     });
 
     it('lays out producers on top, grid left, storage right, consumers below, bound on the lines', () => {

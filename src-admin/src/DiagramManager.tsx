@@ -20,12 +20,15 @@ import {
     List,
     ListItem,
     ListItemButton,
+    ListItemIcon,
     ListItemText,
     Menu,
     MenuItem,
     Snackbar,
     Stack,
     TextField,
+    ToggleButton,
+    ToggleButtonGroup,
     Tooltip,
     Typography,
 } from '@mui/material';
@@ -48,11 +51,14 @@ import {
     diagramFileName,
     diagramShortId,
     emptyConfig,
+    MEDIA,
+    MEDIUM_IDS,
     nameFromFileName,
     readImport,
     slugify,
     type FlowConfig,
     type ImportItem,
+    type MediumId,
 } from '@flow/core';
 import {
     createDiagram,
@@ -61,6 +67,7 @@ import {
     FlowEditor,
     ImportSummary,
     importErrorText,
+    MEDIUM_ICONS,
     pickFiles,
     loadDiagram,
     ResizeHandle,
@@ -126,7 +133,12 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
 
     const { diagrams, loading, reload } = useStoredDiagrams(context.socket, instance);
 
-    const [selected, setSelected] = React.useState<string | null>(null);
+    /**
+     * Which diagram is open, remembered per browser: the tab is left and come back to all day, and
+     * landing on the first diagram of the list every time is not where anybody was working. An id
+     * that no longer exists falls back to the first, so a deleted or renamed instance is harmless.
+     */
+    const [selected, setSelected] = usePersistentState('flow.tab.selected', '');
     /** The loaded content of the selected diagram; `undefined` while it is being fetched */
     const [content, setContent] = React.useState<{ id: string; config: FlowConfig } | undefined>();
     /** Bumped to remount the designer, which is how "discard changes" restores the stored version */
@@ -134,6 +146,12 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
     const [dirty, setDirty] = React.useState(false);
     const [prompt, setPrompt] = React.useState<Prompt>({ kind: 'none' });
     const [nameDraft, setNameDraft] = React.useState('');
+    /**
+     * What a new diagram will carry. It is asked here rather than left to the designer, because it
+     * decides the unit, the speed of the dots and which templates are shown -- and because a diagram
+     * that starts as the wrong medium has to be converted by hand afterwards.
+     */
+    const [mediumDraft, setMediumDraft] = React.useState<MediumId>('energy');
     const [menuAnchor, setMenuAnchor] = React.useState<HTMLElement | null>(null);
     const [toast, setToast] = React.useState<string | null>(null);
     /** Width and visibility of the diagram list, remembered per browser */
@@ -181,7 +199,7 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
         action();
     };
 
-    const requestSelect = (id: string | null): void => {
+    const requestSelect = (id: string): void => {
         if (id === effectiveSelected) {
             return;
         }
@@ -309,13 +327,13 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
         const name = nameDraft.trim();
         try {
             if (prompt.kind === 'create' && name) {
-                await create(name, emptyConfig());
+                await create(name, emptyConfig(mediumDraft));
             } else if (prompt.kind === 'rename' && name) {
                 await renameDiagram(context.socket, prompt.id, name);
                 reload();
             } else if (prompt.kind === 'delete') {
                 await deleteDiagram(context.socket, prompt.id);
-                setSelected(null);
+                setSelected('');
                 setDirty(false);
                 reload();
             } else if (prompt.kind === 'import') {
@@ -339,6 +357,9 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
 
     const openNamePrompt = (next: Prompt, initial: string): void => {
         setNameDraft(initial);
+        if (next.kind === 'create') {
+            setMediumDraft('energy');
+        }
         setPrompt(next);
     };
 
@@ -498,6 +519,11 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
                             selected={entry.id === effectiveSelected}
                             onClick={() => requestSelect(entry.id)}
                         >
+                            <Tooltip title={t(MEDIA[entry.medium].label)}>
+                                <ListItemIcon sx={{ minWidth: 32, color: 'text.secondary', '& svg': { fontSize: 20 } }}>
+                                    {MEDIUM_ICONS[entry.medium]}
+                                </ListItemIcon>
+                            </Tooltip>
                             <ListItemText
                                 primary={entry.name}
                                 secondary={diagramShortId(entry.id)}
@@ -584,6 +610,41 @@ export function DiagramManager(props: DiagramManagerProps): React.JSX.Element {
                         }}
                         helperText={prompt.kind === 'rename' ? t('tab_rename_hint') : undefined}
                     />
+                    {prompt.kind === 'create' ? (
+                        <Box sx={{ mt: 2 }}>
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: 'block' }}
+                            >
+                                {t('insp_medium')}
+                            </Typography>
+                            <ToggleButtonGroup
+                                exclusive
+                                size="small"
+                                value={mediumDraft}
+                                onChange={(_event, value: MediumId | null) => value && setMediumDraft(value)}
+                            >
+                                {MEDIUM_IDS.map(id => (
+                                    <ToggleButton
+                                        key={id}
+                                        value={id}
+                                        sx={{ gap: 0.75, '& .MuiSvgIcon-root': { fontSize: 18 } }}
+                                    >
+                                        {MEDIUM_ICONS[id]}
+                                        {t(MEDIA[id].label)}
+                                    </ToggleButton>
+                                ))}
+                            </ToggleButtonGroup>
+                            <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ display: 'block', mt: 1 }}
+                            >
+                                {t('insp_medium_hint')}
+                            </Typography>
+                        </Box>
+                    ) : null}
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={closePrompt}>{t('cancel')}</Button>

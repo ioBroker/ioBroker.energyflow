@@ -6,10 +6,11 @@ import React from 'react';
 import { Box, Button, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { Add, Clear, Image as ImageIcon } from '@mui/icons-material';
 
-import type { FlowConfig, FlowNode, NodeRule } from '@flow/core';
+import { switchText, withSwitchText, type FlowConfig, type FlowNode, type NodeRule } from '@flow/core';
 
 import { CheckRow, ColorRow, NumberField, Row, Section, SelectRow, TextFieldRow } from './fields';
 import { IconPickerDialog, IconPreview } from './IconPicker';
+import { kpiLabel } from './labels';
 import { SourceField } from './SourceField';
 import type { EditorContext } from './types';
 
@@ -23,35 +24,89 @@ interface ExtrasProps {
 }
 
 const OPERATORS: NodeRule['op'][] = ['<', '<=', '>', '>=', '==', '!='];
+/** What the two fields of a switch write; the list below them holds everything else */
+const SWITCH_KEYS = ['true', '1', 'false', '0'];
 const KPIS = ['none', 'autarky', 'selfConsumption'] as const;
 
-/** Number or text, the key figure, today's energy, and when the value counts as stale */
+/**
+ * The words for a switch, right under the source -- the same two fields an extra value has.
+ *
+ * The four keys they write live here and not in the list below, which is for everything else a state
+ * may say: a status, a mode, an error number.
+ */
+export function SwitchTextFields(props: {
+    node: FlowNode;
+    patch: (values: Partial<FlowNode>) => void;
+    context: EditorContext;
+}): React.JSX.Element {
+    const { node, patch, context } = props;
+    return (
+        <Row>
+            <TextFieldRow
+                label={context.t('insp_badge_true')}
+                value={switchText(node.textMap, true)}
+                onChange={text => patch({ textMap: withSwitchText(node.textMap, true, text) })}
+            />
+            <TextFieldRow
+                label={context.t('insp_badge_false')}
+                value={switchText(node.textMap, false)}
+                onChange={text => patch({ textMap: withSwitchText(node.textMap, false, text) })}
+            />
+        </Row>
+    );
+}
+
+/** What the node shows where its number would be: a number, the state as text, or nothing */
+export function DisplaySelect(props: {
+    node: FlowNode;
+    patch: (values: Partial<FlowNode>) => void;
+    context: EditorContext;
+}): React.JSX.Element {
+    const { node, patch, context } = props;
+    return (
+        <>
+            <SelectRow
+                label={context.t('insp_display')}
+                value={node.display ?? 'number'}
+                options={(['number', 'text', 'none'] as const).map(value => ({
+                    value,
+                    label: context.t(`display_${value}`),
+                }))}
+                onChange={display => patch({ display: display === 'number' ? undefined : display })}
+            />
+            {node.display === 'none' ? (
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', mt: 0.5 }}
+                >
+                    {context.t('insp_display_none_hint')}
+                </Typography>
+            ) : null}
+        </>
+    );
+}
+
+/** The key figure, today's energy, the translations, and when the value counts as stale */
 export function ValueDisplayFields(props: ExtrasProps): React.JSX.Element {
     const { config, node, patch, context } = props;
-    const map = Object.entries(node.textMap || {});
+    // The two words of a switch have their own fields up at the source; this list is the rest
+    const map = Object.entries(node.textMap || {}).filter(([raw]) => !SWITCH_KEYS.includes(raw));
 
-    const setMap = (entries: [string, string][]): void =>
-        patch({ textMap: entries.length ? Object.fromEntries(entries) : undefined });
+    const setMap = (entries: [string, string][]): void => {
+        const switched = Object.entries(node.textMap || {}).filter(([raw]) => SWITCH_KEYS.includes(raw));
+        const next = Object.fromEntries([...switched, ...entries]);
+        patch({ textMap: Object.keys(next).length ? next : undefined });
+    };
 
     return (
         <>
-            <Row>
-                <SelectRow
-                    label={context.t('insp_display')}
-                    value={node.display ?? 'number'}
-                    options={(['number', 'text'] as const).map(value => ({
-                        value,
-                        label: context.t(`display_${value}`),
-                    }))}
-                    onChange={display => patch({ display: display === 'number' ? undefined : display })}
-                />
-                <SelectRow
-                    label={context.t('insp_kpi')}
-                    value={node.kpi ?? 'none'}
-                    options={KPIS.map(value => ({ value, label: context.t(`kpi_${value}`) }))}
-                    onChange={kpi => patch({ kpi: kpi === 'none' ? undefined : kpi })}
-                />
-            </Row>
+            <SelectRow
+                label={context.t('insp_kpi')}
+                value={node.kpi ?? 'none'}
+                options={KPIS.map(value => ({ value, label: kpiLabel(value, config, context.t) }))}
+                onChange={kpi => patch({ kpi: kpi === 'none' ? undefined : kpi })}
+            />
             {node.kpi ? (
                 <Typography
                     variant="caption"
@@ -62,7 +117,7 @@ export function ValueDisplayFields(props: ExtrasProps): React.JSX.Element {
                 </Typography>
             ) : null}
 
-            {node.display === 'text' ? (
+            {node.display === 'text' || map.length ? (
                 <Box sx={{ mt: 1 }}>
                     <Typography
                         variant="caption"
@@ -172,6 +227,12 @@ function RuleRow(props: {
 }): React.JSX.Element {
     const { rule, index, onChange, onRemove, context, color } = props;
     const [iconOpen, setIconOpen] = React.useState(false);
+    /**
+     * While the field has focus its text belongs to the input, not to the rule. Without that "0," is
+     * impossible: the comma makes no difference to `Number`, the rule would store 0, and the next
+     * render would write that 0 back over the character just typed.
+     */
+    const [draft, setDraft] = React.useState<string | null>(null);
 
     return (
         <Box
@@ -206,13 +267,17 @@ function RuleRow(props: {
                     size="small"
                     fullWidth
                     label={context.t('insp_rule_value')}
-                    value={rule.value}
+                    value={draft ?? rule.value}
+                    onFocus={() => setDraft(`${rule.value}`)}
                     onChange={event => {
                         const text = event.target.value;
+                        setDraft(text);
                         const number = Number(text.replace(',', '.'));
                         // Numbers stay numbers, so "< 20" compares numerically; anything else is a text
                         onChange({ ...rule, value: text.trim() !== '' && Number.isFinite(number) ? number : text });
                     }}
+                    onBlur={() => setDraft(null)}
+                    slotProps={{ htmlInput: { inputMode: 'decimal' } }}
                 />
                 <IconButton
                     size="small"

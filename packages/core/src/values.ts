@@ -8,6 +8,7 @@
  */
 import { isSrcConst, isSrcExpr, isSrcSame, isSrcState, type FlowConfig, type Src, type SrcScaling } from './types';
 import { evalExpr, type ExprValue } from './expr';
+import { templateOids } from './template';
 
 /** Reads the current value of a state. `null` means "unknown", not "zero". */
 export type ValueGetter = (oid: string) => number | null;
@@ -186,6 +187,10 @@ export function collectOids(config: FlowConfig | undefined): string[] {
         // current value to know what to write, and `chart` needs the id to be resolvable
         if (node.action?.oid && (node.action.type === 'toggle' || node.action.type === 'chart')) {
             ids.add(node.action.oid);
+        }
+        // A caption may read states of its own, by name, in the middle of its text
+        for (const id of templateOids(node.text)) {
+            ids.add(id);
         }
     }
 

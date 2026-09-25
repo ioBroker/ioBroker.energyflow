@@ -27,6 +27,7 @@ import {
     useTheme,
 } from '@mui/material';
 import {
+    Autorenew,
     Check,
     Close,
     Code,
@@ -48,11 +49,15 @@ import {
     slugify,
     createNode,
     fitCanvas,
+    mediumOf,
     needsClock,
+    paletteOf,
+    SWITCH_OFF_COLOR,
+    switchTextMap,
     normalizeConfig,
     themeFromMui,
     type FlowConfig,
-    type NodeKind,
+    type PaletteEntry,
 } from '@flow/core';
 
 import { Canvas } from './Canvas';
@@ -65,8 +70,8 @@ import { useDefaultHistory, useEnergyToday, useHistory } from './useHistory';
 import { ResizeHandle } from './ResizeHandle';
 import { usePersistentState } from './usePersistentState';
 import { useEditorShortcuts } from './useEditorShortcuts';
-import { kindLabel } from './labels';
-import { KIND_ICONS } from './optionIcons';
+import { paletteLabel } from './labels';
+import { kindIcon } from './kindIcon';
 import { DeviceWizard } from './DeviceWizard';
 import { exportPng, exportSvg } from './exportImage';
 import type { EditorContext, EditorSelection } from './types';
@@ -118,10 +123,14 @@ const HISTORY_LIMIT = 60;
 /** Edits with the same merge key closer together than this are one undo step: a held arrow key */
 const MERGE_WINDOW_MS = 1000;
 
-/** The palette on the left. `bus` is last because it is the one that needs explaining. */
-const PALETTE: { kind: NodeKind; icon: React.ReactElement; label: string }[] = (
-    ['source', 'sink', 'storage', 'grid', 'label', 'bus'] as const
-).map(kind => ({ kind, icon: KIND_ICONS[kind], label: `kind_${kind}` }));
+/**
+ * How long the designer waits after the last change before it saves by itself.
+ *
+ * Long enough that dragging a node is one save and not thirty, short enough that nobody loses work
+ * by closing the tab. It only applies to the admin tab: in the dialog of a widget, saving closes it,
+ * and a dialog that closes itself while somebody is drawing would be a bug, not a feature.
+ */
+const AUTOSAVE_MS = 10000;
 
 export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
     const { open, value, onClose, onSave, context, title, onDirtyChange, toolbarExtra, toolbarStart } = props;
@@ -166,6 +175,7 @@ export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
      */
     const [baseline, setBaseline] = React.useState<FlowConfig>(() => past.history[0]);
     const dirty = config !== baseline;
+    const [autosave, setAutosave] = usePersistentState('flow.editor.autosave', false);
 
     React.useEffect(() => {
         onDirtyChange?.(dirty);
@@ -254,14 +264,57 @@ export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
         );
     };
 
-    const addNode = (kind: NodeKind): void => {
+    const addNode = (entry: PaletteEntry): void => {
         // Drop it in the middle of the free upper area rather than at 0,0 -- a new node that lands
         // under an existing one looks like nothing happened
         const at = { x: config.canvas.w / 2, y: Math.min(80 + config.nodes.length * 20, config.canvas.h - 80) };
-        const node = createNode(config, kind, at, kindLabel(kind, config, context.t));
+        const node = createNode(config, entry.kind, at, paletteLabel(entry, config, context.t));
+        // An entry that names an icon means it: a valve is a node that something flows through, and
+        // without the icon it would be indistinguishable from a pump
+        if (entry.icon !== undefined) {
+            node.icon = entry.icon;
+        }
+        // A valve, a pump, a meter: they show their own reading, not the sum of their lines
+        if (entry.reads && !node.value) {
+            node.value = { oid: '' };
+        }
+        // ... and a switch is shown as a word. The state behind a valve is a boolean far more often
+        // than a number, and "1 l/min" would be nonsense; a percentage valve is a number field away
+        if (entry.onOff) {
+            const [on, off] = entry.onOff;
+            node.display = 'text';
+            node.textMap = switchTextMap(context.t(on), context.t(off));
+            // On it carries the colour of its medium, off it is grey -- a glance at the diagram says
+            // which valve is open. Zero is off for a boolean and for a percentage alike
+            const accent = mediumOf(config).accent;
+            if (accent) {
+                node.color = accent;
+            }
+            node.rules = [{ op: '==', value: 0, color: SWITCH_OFF_COLOR }];
+        }
         commit({ ...config, nodes: [...config.nodes, node] });
         setSelection({ kind: 'node', id: node.id });
     };
+
+    /** What this diagram is made of: a water installation has valves and pumps, not "a bus" */
+    const palette = React.useMemo(() => paletteOf(mediumOf(config).id), [config]);
+
+    /**
+     * Saving by itself: every change restarts the clock, so a burst of edits is one save. The effect
+     * depends on `config`, which is what makes it a debounce -- the pending timer is cleared on the
+     * next change and the one that finally fires holds the current document.
+     */
+    React.useEffect(() => {
+        if (!inline || !autosave || !dirty) {
+            return undefined;
+        }
+        const timer = setTimeout(() => {
+            lastMerge.current = null;
+            onSave(config);
+            setBaseline(config);
+        }, AUTOSAVE_MS);
+        return () => clearTimeout(timer);
+    }, [inline, autosave, dirty, config, onSave]);
 
     const runtimeForTitle = React.useMemo(() => computeRuntime(config, () => null, flowTheme), [config, flowTheme]);
 
@@ -438,6 +491,28 @@ export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
 
                     {toolbarExtra}
 
+                    {inline ? (
+                        <Tooltip title={context.t('editor_autosave')}>
+                            <IconButton
+                                size="small"
+                                color={autosave ? 'primary' : 'default'}
+                                onClick={() => setAutosave(previous => !previous)}
+                                sx={{
+                                    mr: 1,
+                                    // While the clock is running the symbol turns, so the wait is
+                                    // visible: something is going to be saved, and nothing is stuck
+                                    '@keyframes flow-spin': { to: { transform: 'rotate(360deg)' } },
+                                    '& svg': {
+                                        animation: autosave && dirty ? 'flow-spin 3s linear infinite' : 'none',
+                                    },
+                                    '@media (prefers-reduced-motion: reduce)': { '& svg': { animation: 'none' } },
+                                }}
+                            >
+                                <Autorenew />
+                            </IconButton>
+                        </Tooltip>
+                    ) : null}
+
                     <Button
                         startIcon={<Close />}
                         onClick={onClose}
@@ -472,13 +547,15 @@ export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
 
                     spacing={0.5}
                 >
-                    {PALETTE.map(entry => (
+                    {palette.map(entry => (
                         <Tooltip
-                            key={entry.kind}
-                            title={context.t('editor_add', kindLabel(entry.kind, config, context.t))}
+                            key={entry.id}
+                            title={context.t('editor_add', paletteLabel(entry, config, context.t))}
                             placement="right"
                         >
-                            <IconButton onClick={() => addNode(entry.kind)}>{entry.icon}</IconButton>
+                            <IconButton onClick={() => addNode(entry)}>
+                                {kindIcon(entry.kind, config, entry.icon)}
+                            </IconButton>
                         </Tooltip>
                     ))}
                 </Stack>
@@ -562,6 +639,7 @@ export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
             />
 
             <PresetDialog
+                medium={mediumOf(config).id}
                 open={presetsOpen}
                 onClose={() => setPresetsOpen(false)}
                 onPick={picked => {
@@ -578,6 +656,7 @@ export function FlowEditor(props: FlowEditorProps): React.JSX.Element {
             />
 
             <DeviceWizard
+                medium={mediumOf(config).id}
                 open={wizardOpen}
                 onClose={() => setWizardOpen(false)}
                 onPick={picked => {

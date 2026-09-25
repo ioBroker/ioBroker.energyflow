@@ -108,6 +108,20 @@ export const BUILTIN_ICONS: Record<string, IconDefinition> = {
             </>
         ),
     },
+    pipe: {
+        mode: 'stroke',
+        category: 'production',
+        label: 'icon_pipe',
+        body: (
+            <>
+                <path d="M2.5 9.5 H16 v5 H2.5 Z" />
+                <path d="M16 7 h2.6 v10 H16 Z" />
+                <path d="M19.5 12 H21.5" />
+                <path d="M6 9.5 V14.5" />
+                <path d="M10 9.5 V14.5" />
+            </>
+        ),
+    },
     well: {
         mode: 'stroke',
         category: 'production',
@@ -252,6 +266,25 @@ export const BUILTIN_ICONS: Record<string, IconDefinition> = {
                 <path d="M12 3 V21" />
                 <path d="M7.6 15 H16.4" />
                 <path d="M9.3 10.5 H14.7" />
+            </>
+        ),
+    },
+    flowsensor: {
+        mode: 'stroke',
+        category: 'grid',
+        label: 'icon_flowsensor',
+        body: (
+            <>
+                <path d="M2.5 7.4 H21.5 V16.6 H2.5 Z" />
+                <circle
+                    cx="12"
+                    cy="12"
+                    r="3.8"
+                />
+                <path d="M9.3 10.1 L14.7 13.9" />
+                <path d="M9.3 13.9 L14.7 10.1" />
+                <path d="M4.6 12 H7" />
+                <path d="M17 12 H19.4" />
             </>
         ),
     },
@@ -583,6 +616,35 @@ export const BUILTIN_ICONS: Record<string, IconDefinition> = {
                 <path d="M15.5 13 V14.6" />
                 <path d="M10 17.6 V19.2" />
                 <path d="M14 17.6 V19.2" />
+            </>
+        ),
+    },
+    basin: {
+        mode: 'stroke',
+        category: 'consumption',
+        label: 'icon_basin',
+        body: (
+            <>
+                <path d="M3.5 12.5 H20.5 L18.6 19 c-0.2 0.9 -1 1.5 -1.9 1.5 H7.3 c-0.9 0 -1.7 -0.6 -1.9 -1.5 Z" />
+                <path d="M12 12.5 V9 c0 -1.9 1.5 -3.5 3.5 -3.5 H17" />
+                <path d="M15.5 3.5 H18.5" />
+            </>
+        ),
+    },
+    pond: {
+        mode: 'stroke',
+        category: 'consumption',
+        label: 'icon_pond',
+        body: (
+            <>
+                <ellipse
+                    cx="12"
+                    cy="13.8"
+                    rx="9"
+                    ry="5.6"
+                />
+                <path d="M6.6 12.4 c1.2 -1.2 2.4 -1.2 3.6 0 c1.2 1.2 2.4 1.2 3.6 0 c0.9 -0.9 1.8 -1.1 2.7 -0.6" />
+                <path d="M8.4 16.4 c1.1 -1.1 2.2 -1.1 3.3 0 c1.1 1.1 2.2 1.1 3.3 0" />
             </>
         ),
     },

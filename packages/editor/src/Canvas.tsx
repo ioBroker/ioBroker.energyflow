@@ -88,7 +88,7 @@ type Gesture =
            */
           clickSelects?: string;
       }
-    | { kind: 'connect'; fromId: string; cursor: Point }
+    | { kind: 'connect'; fromId: string; cursor: Point; overId?: string }
     | {
           kind: 'bend';
           edgeId: string;
@@ -259,7 +259,14 @@ export function Canvas(props: CanvasProps): React.JSX.Element {
         const point = toCanvasPoint(svg, event.clientX, event.clientY);
 
         if (current.kind === 'connect') {
-            setGesture({ ...current, cursor: point });
+            // What the line would connect to if it were released here. It is worked out on every move
+            // rather than on release, because that is the only way to show it
+            const over = nodeAt(config, point);
+            setGesture({
+                ...current,
+                cursor: point,
+                overId: over && over.id !== current.fromId ? over.id : undefined,
+            });
             return;
         }
 
@@ -394,6 +401,7 @@ export function Canvas(props: CanvasProps): React.JSX.Element {
     );
 
     const connectingFrom = gesture.kind === 'connect' ? runtime.nodeById[gesture.fromId] : undefined;
+    const connectTarget = gesture.kind === 'connect' && gesture.overId ? runtime.nodeById[gesture.overId] : undefined;
 
     const overlay = (
         <g>
@@ -537,13 +545,35 @@ export function Canvas(props: CanvasProps): React.JSX.Element {
                   })()
                 : null}
 
+            {/* What the connection would land on: a ring around it, in the colour of the line that
+                is being drawn, and the rubber band snapping to its middle */}
+            {connectTarget ? (
+                <rect
+                    x={connectTarget.rect.x - 7}
+                    y={connectTarget.rect.y - 7}
+                    width={connectTarget.rect.w + 14}
+                    height={connectTarget.rect.h + 14}
+                    rx={
+                        connectTarget.shape === 'circle'
+                            ? (Math.min(connectTarget.rect.w, connectTarget.rect.h) + 14) / 2
+                            : 20
+                    }
+                    fill={connectingFrom?.color ?? theme.text}
+                    fillOpacity={0.12}
+                    stroke={connectingFrom?.color ?? theme.text}
+                    strokeWidth={2.5}
+                    vectorEffect="non-scaling-stroke"
+                    style={{ pointerEvents: 'none' }}
+                />
+            ) : null}
+
             {/* The rubber band while a connection is being drawn */}
             {connectingFrom && gesture.kind === 'connect' ? (
                 <line
                     x1={connectingFrom.rect.x + connectingFrom.rect.w / 2}
                     y1={connectingFrom.rect.y + connectingFrom.rect.h / 2}
-                    x2={gesture.cursor.x}
-                    y2={gesture.cursor.y}
+                    x2={connectTarget ? connectTarget.rect.x + connectTarget.rect.w / 2 : gesture.cursor.x}
+                    y2={connectTarget ? connectTarget.rect.y + connectTarget.rect.h / 2 : gesture.cursor.y}
                     stroke={connectingFrom.color}
                     strokeWidth={2.5}
                     strokeDasharray="7 5"

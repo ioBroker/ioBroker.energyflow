@@ -11,6 +11,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
+
+import translations from '@flow/i18n';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
@@ -104,14 +106,8 @@ function bindDemoValues(config: FlowConfig): { config: FlowConfig; values: Recor
 }
 
 /** English labels; the preview is one image for every language */
-const LABELS: Record<string, string> = {
-    node_pv: 'Photovoltaics',
-    node_grid: 'Grid',
-    node_home: 'House',
-    node_battery: 'Battery',
-    node_wallbox: 'Wallbox',
-    node_heatpump: 'Heat pump',
-};
+/** The real dictionary: a second copy of the labels drifts away with the next template */
+const LABELS = translations.de as Record<string, string>;
 
 function render(presetId: Parameters<typeof buildPreset>[0], fileName: string): void {
     const preset = buildPreset(presetId, key => LABELS[key] || key);

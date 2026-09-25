@@ -16,7 +16,7 @@ import {
     detailTarget,
     emptyConfig,
     needsClock,
-    parseStoredDiagram,
+    diagramFromNative,
     readDetail,
     themeFromMui,
     type FlowConfig,
@@ -55,16 +55,16 @@ export function WidgetPreview(props: { context: EditorContext; instance: number 
             .then(loaded => !cancelled && setConfig({ id: selected, config: loaded }))
             .catch(() => !cancelled && setConfig({ id: selected, config: null }));
 
-        // Follow saves made elsewhere, as the widget does
-        const onChange = (_id: string, state: ioBroker.State | null | undefined): void => {
-            if (!cancelled && state) {
-                setConfig({ id: selected, config: parseStoredDiagram(state.val) });
+        // Follow saves made elsewhere, as the widget does: a diagram is an object
+        const onChange = (_id: string, object: ioBroker.Object | null | undefined): void => {
+            if (!cancelled) {
+                setConfig({ id: selected, config: diagramFromNative(object?.native) });
             }
         };
-        void context.socket.subscribeState(selected, onChange);
+        void context.socket.subscribeObject(selected, onChange);
         return () => {
             cancelled = true;
-            context.socket.unsubscribeState(selected, onChange);
+            void context.socket.unsubscribeObject(selected, onChange);
         };
     }, [selected, context.socket]);
 

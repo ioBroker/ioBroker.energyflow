@@ -1,6 +1,8 @@
 /**
- * The icons of the designer's choices, in one place: the palette and the inspector's lists show the
- * same symbol for the same thing, so a user who learnt the sun on the palette finds it in the list.
+ * The icons of the designer's choices, in one place, so the same thing carries the same symbol in
+ * every list. These are the abstract ones -- a kind, a route, a shape -- as the inspector and the
+ * assistant show them; the palette instead draws the icon the node will really get, which depends on
+ * the medium (a source of water is a well, not a sun).
  *
  * The routing and shape icons are drawn here -- no icon set has "a line with one Bézier bend".
  */
@@ -24,6 +26,7 @@ import {
     HorizontalRule,
     Image,
     Link,
+    LocalFireDepartment,
     North,
     Numbers,
     OpenWith,
@@ -32,14 +35,16 @@ import {
     South,
     SyncAlt,
     TextFields,
+    Thermostat,
     ToggleOn,
     Update,
+    WaterDrop,
     WbSunny,
     Web,
     West,
 } from '@mui/icons-material';
 
-import type { EdgeCurve, EdgeMode, NodeKind, NodeShape, Side, TimestampFormat } from '@flow/core';
+import type { EdgeCurve, EdgeMode, MediumId, NodeKind, NodeShape, Side, TimestampFormat } from '@flow/core';
 
 function StrokeIcon(props: SvgIconProps & { children: React.ReactNode }): React.JSX.Element {
     const { children, ...rest } = props;
@@ -66,6 +71,14 @@ export const KIND_ICONS: Record<NodeKind, React.ReactElement> = {
     bus: <Add />,
     label: <TextFields />,
     image: <Image />,
+};
+
+/** What flows: the lightning, the drop, the flame and the thermometer, wherever the medium is shown */
+export const MEDIUM_ICONS: Record<MediumId, React.ReactElement> = {
+    energy: <Bolt />,
+    water: <WaterDrop />,
+    gas: <LocalFireDepartment />,
+    heat: <Thermostat />,
 };
 
 export const SHAPE_ICONS: Record<NodeShape, React.ReactElement> = {

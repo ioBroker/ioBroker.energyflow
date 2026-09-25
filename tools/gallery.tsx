@@ -12,6 +12,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
+
+import translations from '@flow/i18n';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import {
@@ -24,42 +26,43 @@ import {
     DARK_THEME,
     LIGHT_THEME,
     importEnergiefluss,
+    MEDIA,
+    mediumDefaults,
+    mediumOf,
     PRESETS,
+    SWITCH_OFF_COLOR,
     type FlowConfig,
+    type FlowEdge,
+    type FlowNode,
     type FlowTheme,
+    type MediumId,
 } from '../packages/core/src/index';
 
-const LABELS: Record<string, string> = {
-    node_pv: 'Photovoltaik',
-    node_grid: 'Netz',
-    node_home: 'Haus',
-    node_battery: 'Batterie',
-    node_wallbox: 'Wallbox',
-    node_heatpump: 'Wärmepumpe',
-    node_water_meter: 'Wasserzähler',
-    node_rain: 'Regen',
-    node_cistern: 'Zisterne',
-    node_bath: 'Bad',
-    node_garden: 'Garten',
+/** The real dictionary: a second copy of the labels drifts away with the next template */
+const LABELS = translations.de as Record<string, string>;
+
+/**
+ * What each node carries, per medium and in that medium's unit. They add up on purpose: what the
+ * meter delivers is what the consumers take, so a derived node shows a number somebody could have.
+ * A node that only passes things on -- the house between the meter and its taps -- is deliberately
+ * missing: the line takes the number of the end that says something, and that is the consumer.
+ */
+const DEMO: Record<MediumId, Record<string, number>> = {
+    energy: { pv: 6400, grid: 900, battery: -2100, home: 5200, wallbox: 3600, heatpump: 1800, bus: 7300 },
+    // Litres per minute: a shower is about five, the whole house twelve
+    water: { meter: 12, rain: 4, cistern: 6, bath: 5, garden: 4 },
+    // Cubic metres per hour: a boiler in winter is under two
+    gas: { meter: 2.4, heating: 1.6, stove: 0.4 },
+    // Watts of heat: the pump does the work, the sun helps
+    heat: { pump: 5200, solar: 1200, heating: 3000, water: 3000 },
 };
 
-const DEMO: Record<string, number> = {
-    pv: 6400,
-    grid: 900,
-    battery: -2100,
-    home: 5200,
-    wallbox: 3600,
-    heatpump: 1800,
-    bus: 7300,
-    // Water flows, in l/min -- a shower is about twelve
-    meter: 9,
-    rain: 4,
-    cistern: 7,
-    bath: 7,
-    garden: 5,
-};
+/** For a node the table does not name */
+const FALLBACK: Record<MediumId, number> = { energy: 2400, water: 6, gas: 1.2, heat: 2000 };
 
 function bind(config: FlowConfig): { config: FlowConfig; values: Record<string, number> } {
+    const medium = mediumOf(config).id;
+    const demo = DEMO[medium];
     const values: Record<string, number> = {};
     // Only the state of charge is bound directly; every node value is derived from its connections,
     // which is exactly what a user gets after picking a template and filling in the three ids
@@ -73,7 +76,7 @@ function bind(config: FlowConfig): { config: FlowConfig; values: Record<string, 
     });
     const edges = config.edges.map(edge => {
         const id = `d.e.${edge.id}`;
-        const base = DEMO[edge.from] ?? DEMO[edge.to] ?? 2400;
+        const base = demo[edge.from] ?? demo[edge.to] ?? FALLBACK[medium];
         values[id] = edge.from === 'battery' && edge.mode === 'signed' ? -Math.abs(base) : Math.abs(base);
         return { ...edge, value: { oid: id }, showValue: edge.showValue ?? true };
     });
@@ -83,7 +86,9 @@ function bind(config: FlowConfig): { config: FlowConfig; values: Record<string, 
 let cardCount = 0;
 
 function card(title: string, config: FlowConfig, values: Record<string, number>, theme: FlowTheme): string {
-    const runtime = computeRuntime(config, createValueGetter(values), theme);
+    // The same numbers as the raw state values: an element whose state is a switch shows a word,
+    // and the word comes from the raw value, not from the number the getter hands over
+    const runtime = computeRuntime(config, createValueGetter(values), theme, { raw: oid => values[oid] });
     // Every card is a render of its own, and React numbers the ids of each from zero: without a
     // prefix all cards share the filter and clip ids of the first one, and draw its shadows
     const svg = renderToStaticMarkup(React.createElement(FlowView, { runtime, theme, animate: true }), {
@@ -198,6 +203,151 @@ const importedBound = {
 };
 cards.push(card('imported from energiefluss-erweitert · light', importedBound, importValues, LIGHT_THEME));
 cards.push(card('imported from energiefluss-erweitert · dark', importedBound, importValues, DARK_THEME));
+
+/**
+ * Ring mains, with **no state on a single pipe** (`defaults.hydraulics`).
+ *
+ * This is the part of the renderer a single card cannot show: the numbers have to add up *around* the
+ * ring, and the pipe where two flows meet has to be visibly dead -- muted, no arrow, no dots. Only
+ * the taps and the valve carry a reading here; every pipe is worked out from them.
+ */
+const RING_DEFAULTS: FlowConfig['defaults'] = {
+    ...mediumDefaults('water'),
+    lineWidth: 3,
+    fontSize: 17,
+    hydraulics: true,
+};
+
+/** A corner of the ring: a junction draws as a dot, so it does not pretend to be a device */
+function junction(id: string, x: number, y: number): FlowNode {
+    return { id, kind: 'bus', x, y };
+}
+
+/** A pipe with nothing bound to it, which is the whole point of these three cards */
+function pipe(from: string, to: string): FlowEdge {
+    return { id: `${from}-${to}`, from, to, value: { oid: '' }, showValue: true };
+}
+
+function tap(id: string, x: number, y: number, label: string): FlowNode {
+    return { id, kind: 'sink', x, y, icon: 'tap', label, value: { oid: `r.${id}` } };
+}
+
+/**
+ * Upright, because a ring runs from the connection at the top down to the tap -- and a portrait gets
+ * twice the room on the card, which is what makes the numbers on it readable at all.
+ */
+/**
+ * A valve or a pump as the designer places one: its state is a switch, so it shows a word rather
+ * than a number, and off it turns grey. Written out here because the palette does it in the editor,
+ * which the gallery does not have.
+ */
+function switched(node: FlowNode, on: string, off: string): FlowNode {
+    return {
+        ...node,
+        display: 'text',
+        textMap: { true: on, 1: on, false: off, 0: off },
+        color: MEDIA.water.accent,
+        rules: [{ op: '==', value: 0, color: SWITCH_OFF_COLOR }],
+    };
+}
+
+function ringOf(nodes: FlowNode[], edges: FlowEdge[]): FlowConfig {
+    return { v: 1, canvas: { w: 620, h: 660, grid: 10 }, defaults: RING_DEFAULTS, nodes, edges };
+}
+
+const HOUSE_CONNECTION = LABELS.kind_grid_water;
+
+// One house connection at the top, the tap at the bottom: the water reaches it both ways round, and
+// each half of the ring carries half of what the tap reads
+const ringOne = ringOf(
+    [
+        { id: 'mains', kind: 'grid', x: 310, y: 80, label: HOUSE_CONNECTION },
+        junction('west', 80, 340),
+        junction('east', 540, 340),
+        tap('bath', 310, 580, LABELS.node_bath),
+    ],
+    [pipe('mains', 'west'), pipe('west', 'bath'), pipe('mains', 'east'), pipe('east', 'bath')],
+);
+cards.push(card('ring · one house connection · light', ringOne, { 'r.bath': 10 }, LIGHT_THEME));
+cards.push(card('ring · one house connection · dark', ringOne, { 'r.bath': 10 }, DARK_THEME));
+
+// The same ring with a valve at half a turn in the eastern half: two parts against one
+const ringValve = ringOf(
+    [
+        { id: 'mains', kind: 'grid', x: 310, y: 80, label: HOUSE_CONNECTION },
+        junction('west', 80, 340),
+        {
+            id: 'valve',
+            kind: 'bus',
+            icon: 'valve',
+            x: 540,
+            y: 340,
+            label: LABELS.palette_valve,
+            value: { oid: 'r.valve' },
+            unit: '%',
+        },
+        tap('bath', 310, 580, LABELS.node_bath),
+    ],
+    [pipe('mains', 'west'), pipe('west', 'bath'), pipe('mains', 'valve'), pipe('valve', 'bath')],
+);
+const VALVE_VALUES = { 'r.bath': 10, 'r.valve': 50 };
+cards.push(card('ring · valve at half a turn · light', ringValve, VALVE_VALUES, LIGHT_THEME));
+cards.push(card('ring · valve at half a turn · dark', ringValve, VALVE_VALUES, DARK_THEME));
+
+// Two givers on one ring -- a well and the mains. Each feeds its own side, and the pipe along the top,
+// where the two flows would meet, carries nothing at all
+const ringTwo = ringOf(
+    [
+        { id: 'well', kind: 'source', x: 110, y: 270, label: LABELS.kind_source_water },
+        { id: 'mains', kind: 'grid', x: 510, y: 270, label: HOUSE_CONNECTION },
+        junction('far', 310, 70),
+        tap('bath', 310, 570, LABELS.node_bath),
+    ],
+    [pipe('well', 'bath'), pipe('mains', 'bath'), pipe('well', 'far'), pipe('far', 'mains')],
+);
+cards.push(card('ring · two givers, the top pipe dead · light', ringTwo, { 'r.bath': 12 }, LIGHT_THEME));
+cards.push(card('ring · two givers, the top pipe dead · dark', ringTwo, { 'r.bath': 12 }, DARK_THEME));
+
+// A tank, the pump that moves what is in it, and a ring behind the pump. Nothing here is a number the
+// installation reports except how full the tank is, whether the pump runs, and what the tap takes
+const ringPump = ringOf(
+    [
+        {
+            id: 'cistern',
+            kind: 'storage',
+            x: 310,
+            y: 70,
+            label: LABELS.kind_storage_water,
+            soc: { oid: 'r.level' },
+        },
+        switched(
+            {
+                id: 'pump',
+                kind: 'bus',
+                icon: 'waterpump',
+                x: 310,
+                y: 240,
+                label: LABELS.palette_pump,
+                value: { oid: 'r.pump' },
+            },
+            LABELS.state_on,
+            LABELS.state_off,
+        ),
+        junction('west', 80, 420),
+        junction('east', 540, 420),
+        tap('bath', 310, 580, LABELS.node_bath),
+    ],
+    [pipe('cistern', 'pump'), pipe('pump', 'west'), pipe('pump', 'east'), pipe('west', 'bath'), pipe('east', 'bath')],
+);
+const PUMP_RUNS = { 'r.level': 64, 'r.pump': 1, 'r.bath': 8 };
+cards.push(card('ring · tank and pump · light', ringPump, PUMP_RUNS, LIGHT_THEME));
+cards.push(card('ring · tank and pump · dark', ringPump, PUMP_RUNS, DARK_THEME));
+
+// The same plant with the pump standing: nothing gives, and every pipe says so
+// The tap reads nothing either -- with the pump standing there is nothing at it to read
+const PUMP_STANDS = { ...PUMP_RUNS, 'r.pump': 0, 'r.bath': 0 };
+cards.push(card('ring · the pump stands · light', ringPump, PUMP_STANDS, LIGHT_THEME));
+cards.push(card('ring · the pump stands · dark', ringPump, PUMP_STANDS, DARK_THEME));
 
 /**
  * Every style but the normal one, on a template and on the worked example, light and dark: a style has

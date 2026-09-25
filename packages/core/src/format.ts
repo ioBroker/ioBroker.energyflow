@@ -88,6 +88,11 @@ function defaultDecimals(value: number, scaled: ScaledValue): number {
         // value of exactly zero -- which no magnitude rule can get right
         return scaled.scaled ? 2 : 0;
     }
+    // A percentage is a whole number: the charge line has always rounded it, and a tank that is
+    // "62.0 %" full claims a precision no level sensor has
+    if (scaled.unit === '%') {
+        return 0;
+    }
     const magnitude = Math.abs(value);
     if (magnitude >= 100) {
         return 0;

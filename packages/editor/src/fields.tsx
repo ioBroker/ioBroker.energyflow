@@ -36,6 +36,11 @@ export interface NumberFieldProps {
     /** What one click on the arrows, or one Up/Down key press, adds or takes away. Default 1. */
     step?: number;
     /**
+     * The field counts something: whole numbers only. Without it the arrows follow the number and go
+     * in tenths below two, which is right for a threshold and nonsense for a number of decimal places.
+     */
+    integer?: boolean;
+    /**
      * Where the arrows start while the field is empty. Defaults to a numeric placeholder -- but a width
      * whose placeholder says "auto" is still some number of units wide, and that is what the host passes.
      */
@@ -77,13 +82,19 @@ export function NumberField(props: NumberFieldProps): React.JSX.Element {
         if (props.max !== undefined && clamped > props.max) {
             clamped = props.max;
         }
-        props.onChange(clamped);
+        props.onChange(props.integer ? Math.round(clamped) : clamped);
     };
 
-    const step = props.step ?? 1;
+    /**
+     * How far one press of an arrow goes. Without a step of its own it follows the number: a limit of
+     * 0.1 is reached in tenths, a power of 3000 in whole watts -- an arrow that only ever steps by one
+     * cannot reach a tenth at all, and that is what the fields for a price or a threshold are for.
+     */
+    const stepFor = (from: number): number => props.step ?? (props.integer || Math.abs(from) >= 2 ? 1 : 0.1);
 
     /** One step from `from`, clamped to the limits */
     const stepped = (from: number, direction: 1 | -1, factor = 1): number => {
+        const step = stepFor(from);
         const decimals = Math.max(decimalsOf(step), decimalsOf(from));
         let next = Number((from + direction * step * factor).toFixed(decimals));
         if (props.min !== undefined && next < props.min) {

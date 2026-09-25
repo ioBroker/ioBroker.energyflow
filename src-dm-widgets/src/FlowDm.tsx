@@ -41,7 +41,7 @@ import {
     loadUnits,
     FlowView,
     emptyConfig,
-    parseStoredDiagram,
+    diagramFromNative,
     readDiagramAttribute,
     toNumber,
     createTheme,
@@ -99,9 +99,17 @@ const FLUSH_MS = 120;
 /** How often "12 minutes ago" is recomputed */
 const CLOCK_MS = 30000;
 
-/** The part of the host's socket the charts use */
+/** The part of the host's socket the charts and the stored diagrams use */
 interface HistorySocket {
     getHistory: (id: string, options: ioBroker.GetHistoryOptions) => Promise<unknown>;
+    subscribeObject?: (
+        id: string,
+        cb: (id: string, object: ioBroker.Object | null | undefined) => void,
+    ) => Promise<void>;
+    unsubscribeObject?: (
+        id: string,
+        cb: (id: string, object: ioBroker.Object | null | undefined) => void,
+    ) => Promise<void>;
 }
 
 /**
@@ -249,7 +257,56 @@ export class FlowDm extends WidgetGeneric<FlowDmState, WidgetFlowSettings> {
             this.props.stateContext.removeState(id, this.efOnStateChange);
         }
         this.efSubscribed = [];
+        this.efWatchDiagram(null);
     }
+
+    /** The stored diagram this card is watching, if it shows one */
+    private efWatched: string | null = null;
+
+    /**
+     * Follow the referenced diagram.
+     *
+     * A diagram is an object, so it is read with `getObject` and followed with `subscribeObject` --
+     * the card's state context only carries states. Where the host gives no socket, the diagram is
+     * still read once; it simply does not update until the page is reopened.
+     *
+     * @param id the diagram to watch, or null to stop watching
+     */
+    private efWatchDiagram(id: string | null): void {
+        if (this.efWatched === id) {
+            return;
+        }
+        const context = this.props.stateContext;
+        const socket = (context as unknown as { socket?: HistorySocket }).socket;
+        if (this.efWatched) {
+            socket?.unsubscribeObject?.(this.efWatched, this.efOnDiagramChange).catch(() => undefined);
+        }
+        this.efWatched = id;
+        if (!id) {
+            return;
+        }
+        socket?.subscribeObject?.(id, this.efOnDiagramChange).catch(() => undefined);
+        context
+            .getObject<ioBroker.Object>(id)
+            .then(object => {
+                if (!this.efUnmounted && this.efWatched === id) {
+                    this.setState(
+                        { efStored: { id, config: diagramFromNative((object as ioBroker.AnyObject)?.native) } },
+                        () => this.efSyncSubscriptions(),
+                    );
+                }
+            })
+            .catch(() => undefined);
+    }
+
+    private efOnDiagramChange = (id: string, object: ioBroker.Object | null | undefined): void => {
+        if (this.efUnmounted || id !== this.efWatched) {
+            return;
+        }
+        this.setState({ efStored: { id, config: diagramFromNative((object as ioBroker.AnyObject)?.native) } }, () =>
+            this.efSyncSubscriptions(),
+        );
+    };
 
     /** The stored diagram this card refers to, or null if it carries its own */
     private get efRef(): string | null {
@@ -268,14 +325,6 @@ export class FlowDm extends WidgetGeneric<FlowDmState, WidgetFlowSettings> {
     }
 
     private efOnStateChange: StateChangeListener = (id, state) => {
-        // The referenced diagram comes through the same subscription as the readings, and changes
-        // which readings are needed
-        if (id === this.efRef) {
-            this.setState({ efStored: { id, config: parseStoredDiagram(state?.val) } }, () =>
-                this.efSyncSubscriptions(),
-            );
-            return;
-        }
         this.efPending[id] = state ? toNumber(state.val) : null;
         this.efPendingTimes[id] = { ts: state?.ts, lc: state?.lc, raw: state?.val };
         if (this.efFlushTimer) {
@@ -341,11 +390,9 @@ export class FlowDm extends WidgetGeneric<FlowDmState, WidgetFlowSettings> {
 
     /** Subscribe to what the document reads, unsubscribe from what it no longer does */
     private efSyncSubscriptions(): void {
-        const ref = this.efRef;
+        // The referenced diagram is an object and is watched separately; these are the readings
+        this.efWatchDiagram(this.efRef ?? null);
         const wanted = collectOids(this.efConfig);
-        if (ref && !wanted.includes(ref)) {
-            wanted.push(ref);
-        }
         const context = this.props.stateContext;
 
         for (const id of this.efSubscribed) {
@@ -361,10 +408,7 @@ export class FlowDm extends WidgetGeneric<FlowDmState, WidgetFlowSettings> {
 
         // What the numbers are in comes from the objects; read once per state and page
         if (added.length) {
-            loadUnits(
-                added.filter(id => id !== ref),
-                id => context.getObject<ioBroker.Object>(id),
-            )
+            loadUnits(added, id => context.getObject<ioBroker.Object>(id))
                 .then(() => !this.efUnmounted && this.setState(previous => ({ efUnits: previous.efUnits + 1 })))
                 .catch(() => undefined);
         }
